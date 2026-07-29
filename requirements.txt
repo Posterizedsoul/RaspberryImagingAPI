@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+requests
+pillow
+numpy
+pyserial
+
+# PySpin is NOT here on purpose: it ships inside FLIR's Spinnaker SDK and is
+# not on PyPI. Install the SDK's python wheel by hand (see README). Without
+# it the station falls back to synthetic frames and still runs.

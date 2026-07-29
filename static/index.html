@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Imaging station</title>
+<!-- Before first paint: a flash of the wrong theme on a kiosk is jarring. -->
+<script>document.documentElement.dataset.theme=localStorage.getItem('theme')||'light'</script>
+<style>
+/* Bundled in the repo (SIL OFL, see fonts/OFL.txt). Self-hosted because the
+   rig LAN has no route to a CDN; if the file ever goes missing the stack
+   below falls through to Georgia and nothing looks broken. */
+@font-face{
+  font-family:'EB Garamond';
+  src:url('/static/fonts/EBGaramond.woff2') format('woff2');
+  font-weight:400 700; font-style:normal; font-display:swap;
+}
+:root{
+  /* The plan deck's own palette, so the station matches its drawings. */
+  --bg:#f7f4ef; --panel:#fffdf9; --line:#ddd5c7; --rule:#bcb2a1;
+  --ink:#17150f; --dim:#544f45;
+  --accent:#1f5f8b; --accent-soft:#e9eff5; --track:#ece6dc;
+  --ok:#2f6f4f; --warn:#a86a12; --bad:#a32b22;
+  /* Garamond is a display face. It carries the grade, the tabs and the
+     capture button; everything small and functional is a sans, because a
+     delicate serif at 13px on a 7" panel is what made this unreadable. */
+  --serif:'EB Garamond',Garamond,Georgia,'Times New Roman',serif;
+  --sans:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
+}
+/* Same warm neutrals rotated dark, so the two themes feel like one design.
+   Light is the default: this is a lit workspace, not a cinema. */
+:root[data-theme="dark"]{
+  --bg:#191715; --panel:#221f1c; --line:#332f2a; --rule:#4a443c;
+  --ink:#f0ebe3; --dim:#a89e93;
+  --accent:#78aad4; --accent-soft:#23313d; --track:#2e2a25;
+  --ok:#76b28d; --warn:#d39d51; --bad:#dc8177;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--ink); overflow:hidden;
+  font:15px/1.5 var(--sans);
+  -webkit-user-select:none; user-select:none;
+}
+/* Antialiased thins dark-on-light strokes and a delicate serif cannot spare
+   them. Only the dark theme, where thinning actually helps, opts in. */
+:root[data-theme="dark"] body{-webkit-font-smoothing:antialiased}
+button,select,input{font:inherit;color:inherit}
+
+/* ---- chrome ---- */
+header{
+  display:flex; align-items:center; gap:8px; height:46px;
+  padding:0 12px; background:var(--panel); border-bottom:1px solid var(--rule);
+}
+nav{display:flex;gap:2px;height:100%}
+nav button{
+  background:transparent;border:0;border-bottom:2px solid transparent;
+  padding:0 16px;cursor:pointer;color:var(--dim);height:100%;
+  font-family:var(--serif);font-size:21px;
+}
+nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
+.pills{margin-left:auto;display:flex;gap:13px;align-items:center}
+.pill{
+  display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);
+  white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+.pill b{color:var(--ink);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--rule);flex:none}
+.dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)}
+.dot.warn{background:var(--warn)}
+#theme{
+  background:transparent;border:1px solid var(--line);border-radius:2px;
+  width:34px;height:28px;cursor:pointer;color:var(--dim);line-height:1;
+  font-family:system-ui,'Segoe UI Symbol',sans-serif;font-size:14px;
+}
+#theme:hover{color:var(--ink);border-color:var(--dim)}
+/* The dark accent is a light blue, so white on it is ~2:1. Filled buttons
+   flip to dark ink there. */
+:root[data-theme="dark"] #shoot,
+:root[data-theme="dark"] #save{color:#141c24}
+
+main{height:calc(100% - 46px);overflow:hidden}
+.tab{display:none;height:100%}
+.tab.on{display:flex}
+/* The scrolling tabs need display:block, but an ID selector would outrank
+   .tab{display:none} and leave them permanently visible. Scope it to .on. */
+#history.on,#settings.on{display:block;overflow:auto}
+
+/* ---- live ---- */
+#live{gap:12px;padding:12px}
+.feed{flex:1 1 58%;display:flex;flex-direction:column;gap:10px;min-width:0}
+.feed .frame{
+  flex:1;background:#2a2724;border:1px solid var(--rule);border-radius:3px;
+  overflow:hidden;display:flex;align-items:center;justify-content:center;
+}
+.feed img{width:100%;height:100%;object-fit:contain}
+#shoot{
+  height:62px;border:0;border-radius:3px;background:var(--accent);color:#fff;
+  font-family:var(--serif);font-size:26px;letter-spacing:.14em;
+  cursor:pointer;flex:none;
+}
+#shoot:active{filter:brightness(.88)}
+#shoot:disabled{background:var(--rule);color:var(--panel);cursor:default}
+
+.result{
+  flex:1 1 42%;min-width:0;background:var(--panel);border:1px solid var(--line);
+  border-top:3px solid var(--accent);border-radius:3px;
+  padding:14px;display:flex;flex-direction:column;gap:6px;
+}
+.label{
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--dim);
+}
+#grade{
+  font-family:var(--serif);font-size:80px;line-height:1;font-weight:500;
+  letter-spacing:-.01em;color:var(--ink);
+}
+#grade.pending{
+  font-family:var(--sans);font-size:19px;font-weight:500;color:var(--dim);
+  line-height:1.9;letter-spacing:0;
+}
+#conf{color:var(--dim);font-size:14px}
+.bars{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+.bar{
+  display:grid;grid-template-columns:40px 1fr 44px;gap:10px;align-items:center;
+  font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;
+}
+.bar .track{height:11px;background:var(--track);border-radius:2px;overflow:hidden}
+/* display:block matters: .track is blockified as a grid item but .fill is not,
+   and width/height do nothing on a non-replaced inline box. */
+.bar .fill{display:block;height:100%;background:var(--rule);border-radius:2px}
+.bar.top .fill{background:var(--accent)}
+.bar .pct{text-align:right;color:var(--dim)}
+.thumbs{display:flex;gap:6px;margin-top:auto}
+.thumbs img{
+  width:100%;flex:1;min-width:0;border-radius:2px;border:1px solid var(--line);
+}
+.err{color:var(--bad);font-size:14px;line-height:1.35}
+
+/* ---- history ---- */
+#history{padding:12px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{
+  text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--dim);font-weight:600;padding:0 10px 8px;position:sticky;top:0;
+  background:var(--bg);border-bottom:1px solid var(--rule);
+}
+td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:14px}
+td.g{font-family:var(--serif);font-size:24px;line-height:1}
+.tag{
+  font-size:12px;font-weight:600;padding:2px 9px;border-radius:2px;
+  border:1px solid var(--line);color:var(--dim);
+}
+.tag.done{color:var(--ok);border-color:var(--ok)}
+.tag.failed,.tag.no-model{color:var(--bad);border-color:var(--bad)}
+.tag.queued,.tag.uploading,.tag.waiting{color:var(--warn);border-color:var(--warn)}
+td .row-thumbs{display:flex;gap:4px}
+td .row-thumbs img{height:32px;border-radius:2px;border:1px solid var(--line)}
+
+/* ---- settings ---- */
+#settings{padding:12px}
+fieldset{
+  border:1px solid var(--line);border-top:3px solid var(--accent);
+  border-radius:3px;padding:12px 14px 14px;margin-bottom:12px;
+  background:var(--panel);
+}
+legend{
+  padding:0 8px;font-size:11px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--dim);
+}
+.grid{display:grid;grid-template-columns:150px 1fr;gap:9px 12px;align-items:center}
+input,select{
+  background:var(--bg);border:1px solid var(--line);border-radius:2px;
+  padding:7px 10px;width:100%;
+}
+input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.recipe{display:flex;flex-direction:column;gap:7px}
+.rrow{display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 36px;gap:8px;align-items:center}
+.rrow .n{color:var(--dim);font-size:14px;text-align:center}
+/* Deliberately NOT text-transform:uppercase. CSS uppercases the micro sign to
+   Greek capital Mu, which is visually identical to M -- so "exposure µs"
+   renders as "EXPOSURE MS" and reads as milliseconds. Labels are hand-cased. */
+.rhead{
+  font-size:11px;font-weight:600;color:var(--dim);
+  letter-spacing:.1em;padding-bottom:2px;
+}
+.mini{
+  background:var(--bg);border:1px solid var(--rule);border-radius:2px;
+  padding:7px 12px;cursor:pointer;color:var(--dim);
+}
+.mini:hover{color:var(--ink);border-color:var(--dim)}
+.actions{display:flex;gap:10px;margin-top:10px;align-items:center}
+.actions button{
+  padding:9px 20px;border-radius:2px;border:1px solid var(--rule);
+  background:var(--bg);cursor:pointer;letter-spacing:.04em;
+}
+#save{background:var(--accent);border-color:var(--accent);color:#fff}
+#msg,#vhint{font-size:14px;color:var(--dim)}
+#msg.bad{color:var(--bad)} #msg.ok{color:var(--ok)}
+</style>
+</head>
+<body>
+
+<header>
+  <nav>
+    <button data-tab="live" class="on">Live</button>
+    <button data-tab="history">History</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+  <div class="pills">
+    <span class="pill"><i class="dot" id="d-cam"></i>Camera</span>
+    <span class="pill"><i class="dot" id="d-pico"></i><span id="volts">Pico</span></span>
+    <span class="pill"><i class="dot" id="d-jet"></i>Jetson</span>
+    <span class="pill"><i class="dot" id="d-q"></i>Queue <b id="qdepth">0</b></span>
+    <button id="theme" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
+  </div>
+</header>
+
+<main>
+  <section class="tab on" id="live">
+    <div class="feed">
+      <div class="frame"><img src="/preview.mjpg" alt="live view"></div>
+      <button id="shoot">CAPTURE</button>
+    </div>
+    <div class="result">
+      <div class="label">Latest result</div>
+      <div id="grade" class="pending">no captures yet</div>
+      <div id="conf"></div>
+      <div class="bars" id="bars"></div>
+      <div class="err" id="rerr"></div>
+      <div class="thumbs" id="thumbs"></div>
+    </div>
+  </section>
+
+  <section class="tab" id="history">
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Board</th><th>Images</th><th>Grade</th>
+        <th>Conf</th><th>Status</th>
+      </tr></thead>
+      <tbody id="hbody"></tbody>
+    </table>
+  </section>
+
+  <section class="tab" id="settings">
+    <fieldset>
+      <legend>Capture recipe</legend>
+      <div class="rrow rhead">
+        <span></span><span>LIGHTING</span><span>EXPOSURE µs</span><span>SETTLE ms</span><span></span>
+      </div>
+      <div class="recipe" id="recipe"></div>
+      <div class="actions">
+        <button class="mini" id="add">+ Add image</button>
+        <span id="vhint"></span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Jetson</legend>
+      <div class="grid">
+        <label for="url">Server URL</label><input id="url" placeholder="http://jetson.local:8000">
+        <label for="key">API key</label><input id="key" type="password" placeholder="ingest key">
+        <label for="task">Task</label><input id="task" placeholder="classification">
+        <label for="prefix">Station prefix</label><input id="prefix" placeholder="rig1">
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button id="save">Save</button>
+      <button class="mini" id="check">Check Jetson</button>
+      <span id="msg"></span>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const LIGHTS = ["warm","white","both","off"];
+let cfg = null, lastId = null;
+
+/* theme -- the head script already applied the stored choice */
+function setTheme(t){
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem('theme', t);
+  $('#theme').textContent = t === 'dark' ? '☀' : '☾';
+}
+setTheme(document.documentElement.dataset.theme);
+$('#theme').onclick = () =>
+  setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+
+/* tabs */
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.id === b.dataset.tab));
+});
+
+/* capture */
+$('#shoot').onclick = async () => {
+  const btn = $('#shoot');
+  btn.disabled = true; btn.textContent = 'CAPTURING…';
+  try {
+    const r = await fetch('/api/capture', {method:'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    await refresh();
+  } catch (e) {
+    $('#rerr').textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'CAPTURE';
+  }
+};
+
+/* status pills */
+function dot(el, state){ el.className = 'dot ' + state; }
+
+async function health(){
+  try {
+    const h = await (await fetch('/api/health')).json();
+    dot($('#d-cam'), h.camera.ok ? 'ok' : 'bad');
+    dot($('#d-pico'), h.pico.ok ? 'ok' : 'warn');
+    $('#volts').textContent = h.pico.volts != null ? h.pico.volts.toFixed(2)+' V' : 'Pico';
+    dot($('#d-jet'), h.jetson_ok === null ? '' : (h.jetson_ok ? 'ok' : 'bad'));
+    dot($('#d-q'), h.queue_depth ? 'warn' : 'ok');
+    $('#qdepth').textContent = h.queue_depth;
+    $('#shoot').disabled = h.capturing;
+  } catch {}
+}
+
+/* latest result + history */
+function pct(x){ return (100*x).toFixed(0)+'%'; }
+
+function showLatest(c){
+  const g = $('#grade'), bars = $('#bars');
+  $('#rerr').textContent = c.error || '';
+  $('#thumbs').innerHTML = c.images.map((_,i) =>
+    `<img src="/api/captures/${c.capture_id}/thumb/${i+1}.jpg" alt="">`).join('');
+
+  if (c.result && c.result.label) {
+    g.className = ''; g.textContent = c.result.label;
+    $('#conf').textContent = c.result.confidence != null
+      ? 'confidence ' + c.result.confidence.toFixed(2) : '';
+    const probs = c.result.probs || {};
+    const top = Object.entries(probs).sort((a,b) => b[1]-a[1])[0];
+    bars.innerHTML = Object.entries(probs).sort((a,b) => b[1]-a[1]).map(([k,v]) =>
+      `<div class="bar ${top && k===top[0] ? 'top':''}"><span>${k}</span>
+       <span class="track"><span class="fill" style="width:${100*v}%"></span></span>
+       <span class="pct">${pct(v)}</span></div>`).join('');
+  } else {
+    g.className = 'pending';
+    g.textContent = {queued:'queued…', uploading:'uploading…', waiting:'grading…',
+                     failed:'failed', 'no-model':'no model'}[c.status] || c.status;
+    $('#conf').textContent = ''; bars.innerHTML = '';
+  }
+}
+
+async function refresh(){
+  try {
+    const d = await (await fetch('/api/captures')).json();
+    const list = d.captures;
+    if (list.length) showLatest(list[0]);
+    $('#hbody').innerHTML = list.map(c => `<tr>
+      <td>${c.captured_at.slice(11,19)}</td>
+      <td>${c.board_id}</td>
+      <td><span class="row-thumbs">${c.images.map((im,i) =>
+        `<img src="/api/captures/${c.capture_id}/thumb/${i+1}.jpg" title="${im.lighting}">`
+        ).join('')}</span></td>
+      <td class="g">${c.result?.label ?? '—'}</td>
+      <td>${c.result?.confidence != null ? c.result.confidence.toFixed(2) : '—'}</td>
+      <td><span class="tag ${c.status}">${c.status}</span></td>
+    </tr>`).join('');
+  } catch {}
+}
+
+/* settings */
+function recipeRow(spec, i){
+  const div = document.createElement('div');
+  div.className = 'rrow';
+  div.innerHTML = `<span class="n">${i+1}</span>
+    <select>${LIGHTS.map(l =>
+      `<option ${l===spec.lighting?'selected':''}>${l}</option>`).join('')}</select>
+    <input type="number" min="1" max="1000000" value="${spec.exposure_us}">
+    <input type="number" min="0" max="5000" value="${spec.settle_ms}">
+    <button class="mini">×</button>`;
+  div.querySelector('button').onclick = () => { div.remove(); renumber(); };
+  return div;
+}
+function renumber(){
+  [...$('#recipe').children].forEach((r,i) => r.querySelector('.n').textContent = i+1);
+}
+function drawSettings(){
+  $('#recipe').innerHTML = '';
+  cfg.images.forEach((s,i) => $('#recipe').append(recipeRow(s,i)));
+  $('#url').value = cfg.jetson_url; $('#key').value = cfg.api_key;
+  $('#task').value = cfg.task; $('#prefix').value = cfg.board_id_prefix;
+}
+$('#add').onclick = () => {
+  $('#recipe').append(recipeRow(
+    {lighting:'white', exposure_us:8000, settle_ms:150}, $('#recipe').children.length));
+};
+function collect(){
+  return {
+    jetson_url: $('#url').value, api_key: $('#key').value,
+    task: $('#task').value, board_id_prefix: $('#prefix').value,
+    images: [...$('#recipe').children].map(r => {
+      const f = r.querySelectorAll('select,input');
+      return {lighting:f[0].value, exposure_us:+f[1].value, settle_ms:+f[2].value};
+    })
+  };
+}
+$('#save').onclick = async () => {
+  const m = $('#msg');
+  const r = await fetch('/api/config', {method:'PUT',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(collect())});
+  const body = await r.json();
+  if (r.ok) { cfg = body; drawSettings(); m.className='ok'; m.textContent='Saved.'; }
+  else { m.className='bad'; m.textContent = body.detail || 'Rejected.'; }
+  setTimeout(() => m.textContent = '', 4000);
+};
+$('#check').onclick = async () => {
+  const h = $('#vhint'), m = $('#msg');
+  const j = await (await fetch('/api/jetson')).json();
+  if (!j.reachable) { m.className='bad'; m.textContent = 'Unreachable: '+j.error; return; }
+  m.className='ok';
+  m.textContent = j.active ? `Active: ${j.active.model_id} v${j.active.model_version}`
+                           : 'Reachable, but no active model for this task.';
+  // The server truncates a board to max_views, so a longer recipe uploads
+  // images the model never sees. Say so rather than let it pass silently.
+  h.innerHTML = (j.max_views && j.recipe_images > j.max_views)
+    ? `<span style="color:var(--warn)">Model takes ${j.max_views} images; the
+       last ${j.recipe_images - j.max_views} will be stored but not graded.</span>`
+    : '';
+};
+
+/* boot */
+(async () => {
+  cfg = await (await fetch('/api/config')).json();
+  drawSettings();
+  await refresh(); await health();
+  setInterval(refresh, 1000);
+  setInterval(health, 2000);
+})();
+</script>
+</body>
+</html>

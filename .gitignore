@@ -1,0 +1,12 @@
+# Holds the Jetson ingest key.
+config.json
+
+# The Spinnaker SDK goes here. It is proprietary Teledyne FLIR software and
+# its licence forbids redistribution, so it must never be committed.
+vendor/*
+!vendor/README.md
+
+.venv/
+data/
+__pycache__/
+*.pyc

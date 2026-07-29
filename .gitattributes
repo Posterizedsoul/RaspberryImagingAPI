@@ -1,0 +1,8 @@
+# setup.sh runs on the Pi. If git ever hands it back with CRLF the shebang
+# breaks with "bad interpreter: /usr/bin/env bash^M", which reads as a
+# corrupt file rather than a line-ending problem. Pin it.
+*.sh text eol=lf
+*.py text eol=lf
+*.service text eol=lf
+
+*.woff2 binary
