@@ -17,23 +17,23 @@
 }
 :root{
   /* The plan deck's own palette, so the station matches its drawings. */
-  --bg:#f7f4ef; --panel:#fffdf9; --line:#ddd5c7; --rule:#bcb2a1;
+  --bg:#f7f4ef; --panel:#fffdf9; --line:#ddd5c7; --rule:#bcb2a1; --track:#ece6dc;
   --ink:#17150f; --dim:#544f45;
-  --accent:#1f5f8b; --accent-soft:#e9eff5; --track:#ece6dc;
-  --ok:#2f6f4f; --warn:#a86a12; --bad:#a32b22;
+  --accent:#1f5f8b; --accent-soft:#e9eff5;
+  --ok:#2f6f4f; --warn:#a86a12; --bad:#a32b22; --review:#a86a12;
   /* Garamond is a display face. It carries the grade, the tabs and the
      capture button; everything small and functional is a sans, because a
-     delicate serif at 13px on a 7" panel is what made this unreadable. */
+     delicate serif at 13px on a 7" panel is unreadable at arm's length. */
   --serif:'EB Garamond',Garamond,Georgia,'Times New Roman',serif;
   --sans:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
 }
 /* Same warm neutrals rotated dark, so the two themes feel like one design.
    Light is the default: this is a lit workspace, not a cinema. */
 :root[data-theme="dark"]{
-  --bg:#191715; --panel:#221f1c; --line:#332f2a; --rule:#4a443c;
+  --bg:#191715; --panel:#221f1c; --line:#332f2a; --rule:#4a443c; --track:#2e2a25;
   --ink:#f0ebe3; --dim:#a89e93;
-  --accent:#78aad4; --accent-soft:#23313d; --track:#2e2a25;
-  --ok:#76b28d; --warn:#d39d51; --bad:#dc8177;
+  --accent:#78aad4; --accent-soft:#23313d;
+  --ok:#76b28d; --warn:#d39d51; --bad:#dc8177; --review:#d39d51;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -46,16 +46,17 @@ body{
    them. Only the dark theme, where thinning actually helps, opts in. */
 :root[data-theme="dark"] body{-webkit-font-smoothing:antialiased}
 button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
 
 /* ---- chrome ---- */
 header{
-  display:flex; align-items:center; gap:8px; height:46px;
+  display:flex; align-items:center; gap:8px; height:46px; flex:none;
   padding:0 12px; background:var(--panel); border-bottom:1px solid var(--rule);
 }
 nav{display:flex;gap:2px;height:100%}
 nav button{
   background:transparent;border:0;border-bottom:2px solid transparent;
-  padding:0 16px;cursor:pointer;color:var(--dim);height:100%;
+  padding:0 16px;color:var(--dim);height:100%;
   font-family:var(--serif);font-size:21px;
 }
 nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
@@ -70,7 +71,7 @@ nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
 .dot.warn{background:var(--warn)}
 #theme{
   background:transparent;border:1px solid var(--line);border-radius:2px;
-  width:34px;height:28px;cursor:pointer;color:var(--dim);line-height:1;
+  width:34px;height:28px;color:var(--dim);line-height:1;
   font-family:system-ui,'Segoe UI Symbol',sans-serif;font-size:14px;
 }
 #theme:hover{color:var(--ink);border-color:var(--dim)}
@@ -79,48 +80,84 @@ nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
 :root[data-theme="dark"] #shoot,
 :root[data-theme="dark"] #save{color:#141c24}
 
-main{height:calc(100% - 46px);overflow:hidden}
+/* ---- a fault the operator must not miss ---- */
+#banner{
+  display:none; align-items:center; gap:10px; flex:none;
+  padding:8px 12px; font-size:14px; font-weight:600;
+  background:var(--bad); color:#fff; border-bottom:1px solid var(--rule);
+}
+#banner.on{display:flex}
+#banner button{
+  margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,.5);
+  color:#fff;border-radius:2px;padding:2px 10px;font-size:13px;
+}
+
+main{flex:1;overflow:hidden;min-height:0}
 .tab{display:none;height:100%}
 .tab.on{display:flex}
 /* The scrolling tabs need display:block, but an ID selector would outrank
    .tab{display:none} and leave them permanently visible. Scope it to .on. */
 #history.on,#settings.on{display:block;overflow:auto}
+body{display:flex;flex-direction:column}
 
 /* ---- live ---- */
 #live{gap:12px;padding:12px}
-.feed{flex:1 1 58%;display:flex;flex-direction:column;gap:10px;min-width:0}
+.feed{flex:1 1 57%;display:flex;flex-direction:column;gap:10px;min-width:0}
 .feed .frame{
   flex:1;background:#2a2724;border:1px solid var(--rule);border-radius:3px;
   overflow:hidden;display:flex;align-items:center;justify-content:center;
+  position:relative;
 }
 .feed img{width:100%;height:100%;object-fit:contain}
+#progress{
+  display:none;position:absolute;inset:auto 0 0 0;
+  background:rgba(20,18,16,.82);color:#fff;padding:9px 12px;
+  font-size:15px;font-weight:600;letter-spacing:.02em;
+  align-items:center;gap:10px;
+}
+#progress.on{display:flex}
+#progress .track{flex:1;height:4px;background:rgba(255,255,255,.25);border-radius:2px}
+#progress .fill{display:block;height:100%;background:#fff;border-radius:2px;transition:width .2s}
 #shoot{
-  height:62px;border:0;border-radius:3px;background:var(--accent);color:#fff;
-  font-family:var(--serif);font-size:26px;letter-spacing:.14em;
-  cursor:pointer;flex:none;
+  height:64px;border:0;border-radius:3px;background:var(--accent);color:#fff;
+  font-family:var(--serif);font-size:26px;letter-spacing:.14em;flex:none;
 }
 #shoot:active{filter:brightness(.88)}
 #shoot:disabled{background:var(--rule);color:var(--panel);cursor:default}
 
 .result{
-  flex:1 1 42%;min-width:0;background:var(--panel);border:1px solid var(--line);
+  flex:1 1 43%;min-width:0;background:var(--panel);border:1px solid var(--line);
   border-top:3px solid var(--accent);border-radius:3px;
-  padding:14px;display:flex;flex-direction:column;gap:6px;
+  padding:12px 14px 14px;display:flex;flex-direction:column;
 }
+.result.review{border-top-color:var(--review)}
+.result.bad{border-top-color:var(--bad)}
+.head{display:flex;align-items:baseline;gap:8px}
 .label{
   font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;
   color:var(--dim);
 }
+#when{margin-left:auto;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+#board{
+  font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 #grade{
-  font-family:var(--serif);font-size:80px;line-height:1;font-weight:500;
+  font-family:var(--serif);font-size:82px;line-height:1.02;font-weight:500;
   letter-spacing:-.01em;color:var(--ink);
 }
 #grade.pending{
   font-family:var(--sans);font-size:19px;font-weight:500;color:var(--dim);
-  line-height:1.9;letter-spacing:0;
+  line-height:2.1;letter-spacing:0;
 }
-#conf{color:var(--dim);font-size:14px}
-.bars{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+#verdict{
+  display:none;align-self:flex-start;font-size:12px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;
+  border-radius:2px;margin-top:2px;
+}
+#verdict.on{display:block;background:var(--review);color:#fff}
+#conf{color:var(--dim);font-size:14px;margin-top:2px}
+.bars{display:flex;flex-direction:column;gap:7px;margin-top:10px}
 .bar{
   display:grid;grid-template-columns:40px 1fr 44px;gap:10px;align-items:center;
   font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;
@@ -130,15 +167,24 @@ main{height:calc(100% - 46px);overflow:hidden}
    and width/height do nothing on a non-replaced inline box. */
 .bar .fill{display:block;height:100%;background:var(--rule);border-radius:2px}
 .bar.top .fill{background:var(--accent)}
+.result.review .bar.top .fill{background:var(--review)}
 .bar .pct{text-align:right;color:var(--dim)}
-.thumbs{display:flex;gap:6px;margin-top:auto}
+#rerr{color:var(--bad);font-size:13px;line-height:1.35;margin-top:8px}
+.thumbs{display:flex;gap:6px;margin-top:auto;padding-top:10px}
+.thumbs figure{flex:1;min-width:0}
 .thumbs img{
-  width:100%;flex:1;min-width:0;border-radius:2px;border:1px solid var(--line);
+  width:100%;display:block;border-radius:2px;border:1px solid var(--line);
 }
-.err{color:var(--bad);font-size:14px;line-height:1.35}
+.thumbs figcaption{
+  font-size:10px;color:var(--dim);text-align:center;margin-top:3px;
+  text-transform:uppercase;letter-spacing:.07em;
+}
+#foot{font-size:11px;color:var(--dim);margin-top:8px;font-variant-numeric:tabular-nums}
 
 /* ---- history ---- */
 #history{padding:12px}
+.summary{display:flex;gap:16px;margin-bottom:10px;font-size:13px;color:var(--dim)}
+.summary b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 th{
   text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.1em;
@@ -147,15 +193,20 @@ th{
 }
 td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:14px}
 td.g{font-family:var(--serif);font-size:24px;line-height:1}
+td.g.review{color:var(--review)}
 .tag{
   font-size:12px;font-weight:600;padding:2px 9px;border-radius:2px;
-  border:1px solid var(--line);color:var(--dim);
+  border:1px solid var(--line);color:var(--dim);white-space:nowrap;
 }
 .tag.done{color:var(--ok);border-color:var(--ok)}
 .tag.failed,.tag.no-model{color:var(--bad);border-color:var(--bad)}
 .tag.queued,.tag.uploading,.tag.waiting{color:var(--warn);border-color:var(--warn)}
+td .del{padding:3px 12px;line-height:1.2;font-size:16px}
+td .del:hover{color:var(--bad);border-color:var(--bad)}
+td .del:disabled{opacity:.4;cursor:default}
 td .row-thumbs{display:flex;gap:4px}
 td .row-thumbs img{height:32px;border-radius:2px;border:1px solid var(--line)}
+.empty{padding:40px 10px;text-align:center;color:var(--dim);font-size:14px}
 
 /* ---- settings ---- */
 #settings{padding:12px}
@@ -169,13 +220,14 @@ legend{
   letter-spacing:.1em;color:var(--dim);
 }
 .grid{display:grid;grid-template-columns:150px 1fr;gap:9px 12px;align-items:center}
+.grid .note{grid-column:2;font-size:12px;color:var(--dim);margin-top:-4px}
 input,select{
   background:var(--bg);border:1px solid var(--line);border-radius:2px;
-  padding:7px 10px;width:100%;
+  padding:8px 10px;width:100%;
 }
 input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
 .recipe{display:flex;flex-direction:column;gap:7px}
-.rrow{display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 36px;gap:8px;align-items:center}
+.rrow{display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 40px;gap:8px;align-items:center}
 .rrow .n{color:var(--dim);font-size:14px;text-align:center}
 /* Deliberately NOT text-transform:uppercase. CSS uppercases the micro sign to
    Greek capital Mu, which is visually identical to M -- so "exposure µs"
@@ -186,16 +238,16 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
 }
 .mini{
   background:var(--bg);border:1px solid var(--rule);border-radius:2px;
-  padding:7px 12px;cursor:pointer;color:var(--dim);
+  padding:8px 13px;color:var(--dim);
 }
 .mini:hover{color:var(--ink);border-color:var(--dim)}
-.actions{display:flex;gap:10px;margin-top:10px;align-items:center}
+.actions{display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap}
 .actions button{
   padding:9px 20px;border-radius:2px;border:1px solid var(--rule);
-  background:var(--bg);cursor:pointer;letter-spacing:.04em;
+  background:var(--bg);letter-spacing:.04em;
 }
 #save{background:var(--accent);border-color:var(--accent);color:#fff}
-#msg,#vhint{font-size:14px;color:var(--dim)}
+#msg,#vhint,#exitmsg{font-size:13px;color:var(--dim)}
 #msg.bad{color:var(--bad)} #msg.ok{color:var(--ok)}
 </style>
 </head>
@@ -208,38 +260,54 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
     <button data-tab="settings">Settings</button>
   </nav>
   <div class="pills">
-    <span class="pill"><i class="dot" id="d-cam"></i>Camera</span>
-    <span class="pill"><i class="dot" id="d-pico"></i><span id="volts">Pico</span></span>
-    <span class="pill"><i class="dot" id="d-jet"></i>Jetson</span>
+    <span class="pill" id="p-cam"><i class="dot" id="d-cam"></i>Camera</span>
+    <span class="pill" id="p-pico"><i class="dot" id="d-pico"></i><span id="volts">Pico</span></span>
+    <span class="pill" id="p-jet"><i class="dot" id="d-jet"></i>Jetson</span>
     <span class="pill"><i class="dot" id="d-q"></i>Queue <b id="qdepth">0</b></span>
     <button id="theme" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
   </div>
 </header>
 
+<div id="banner"><span id="bantext"></span><button id="banx">Dismiss</button></div>
+
 <main>
   <section class="tab on" id="live">
     <div class="feed">
-      <div class="frame"><img src="/preview.mjpg" alt="live view"></div>
+      <div class="frame">
+        <img src="/preview.mjpg" alt="live view">
+        <div id="progress">
+          <span id="ptext"></span>
+          <span class="track"><span class="fill" id="pfill"></span></span>
+        </div>
+      </div>
       <button id="shoot">CAPTURE</button>
     </div>
-    <div class="result">
-      <div class="label">Latest result</div>
+
+    <div class="result" id="card">
+      <div class="head">
+        <span class="label">Latest result</span><span id="when"></span>
+      </div>
+      <div id="board"></div>
       <div id="grade" class="pending">no captures yet</div>
+      <span id="verdict">review</span>
       <div id="conf"></div>
       <div class="bars" id="bars"></div>
-      <div class="err" id="rerr"></div>
+      <div id="rerr"></div>
       <div class="thumbs" id="thumbs"></div>
+      <div id="foot"></div>
     </div>
   </section>
 
   <section class="tab" id="history">
+    <div class="summary" id="summary"></div>
     <table>
       <thead><tr>
         <th>Time</th><th>Board</th><th>Images</th><th>Grade</th>
-        <th>Conf</th><th>Status</th>
+        <th>Conf</th><th>Status</th><th></th>
       </tr></thead>
       <tbody id="hbody"></tbody>
     </table>
+    <div class="empty" id="hempty">Nothing captured yet.</div>
   </section>
 
   <section class="tab" id="settings">
@@ -262,6 +330,10 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
         <label for="key">API key</label><input id="key" type="password" placeholder="ingest key">
         <label for="task">Task</label><input id="task" placeholder="classification">
         <label for="prefix">Station prefix</label><input id="prefix" placeholder="rig1">
+        <label for="abstain">Review below</label>
+        <input id="abstain" type="number" min="0" max="1" step="0.05">
+        <span class="note">Confidence under this shows REVIEW instead of a
+          grade. A quiet wrong answer is worse than one that asks.</span>
       </div>
     </fieldset>
 
@@ -270,13 +342,25 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
       <button class="mini" id="check">Check Jetson</button>
       <span id="msg"></span>
     </div>
+
+    <fieldset style="margin-top:12px">
+      <legend>Station</legend>
+      <div class="actions" style="margin-top:0">
+        <button class="mini" id="exit">Exit full screen</button>
+        <span id="exitmsg">Closes the browser on the Pi and returns to the
+          desktop. Capturing and uploading keep running.</span>
+      </div>
+    </fieldset>
   </section>
 </main>
 
 <script>
 const $ = s => document.querySelector(s);
 const LIGHTS = ["warm","white","both","off"];
-let cfg = null, lastId = null;
+const PENDING = {queued:'queued…', uploading:'uploading…', waiting:'grading…',
+                 failed:'failed', 'no-model':'no model on the Jetson',
+                 cancelled:'cancelled'};
+let cfg = null, dismissed = '';
 
 /* theme -- the head script already applied the stored choice */
 function setTheme(t){
@@ -294,81 +378,164 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.id === b.dataset.tab));
 });
 
+/* a fault worth interrupting for */
+function banner(msg){
+  const b = $('#banner');
+  if (!msg || msg === dismissed) { b.classList.remove('on'); return; }
+  $('#bantext').textContent = msg;
+  b.classList.add('on');
+}
+$('#banx').onclick = () => { dismissed = $('#bantext').textContent; banner(null); };
+
 /* capture */
 $('#shoot').onclick = async () => {
   const btn = $('#shoot');
-  btn.disabled = true; btn.textContent = 'CAPTURING…';
+  btn.disabled = true;
   try {
     const r = await fetch('/api/capture', {method:'POST'});
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     await refresh();
   } catch (e) {
-    $('#rerr').textContent = e.message;
+    banner(e.message);
   } finally {
-    btn.disabled = false; btn.textContent = 'CAPTURE';
+    btn.disabled = false;
   }
 };
 
-/* status pills */
+/* status */
 function dot(el, state){ el.className = 'dot ' + state; }
 
 async function health(){
-  try {
-    const h = await (await fetch('/api/health')).json();
-    dot($('#d-cam'), h.camera.ok ? 'ok' : 'bad');
-    dot($('#d-pico'), h.pico.ok ? 'ok' : 'warn');
-    $('#volts').textContent = h.pico.volts != null ? h.pico.volts.toFixed(2)+' V' : 'Pico';
-    dot($('#d-jet'), h.jetson_ok === null ? '' : (h.jetson_ok ? 'ok' : 'bad'));
-    dot($('#d-q'), h.queue_depth ? 'warn' : 'ok');
-    $('#qdepth').textContent = h.queue_depth;
-    $('#shoot').disabled = h.capturing;
-  } catch {}
+  let h;
+  try { h = await (await fetch('/api/health')).json(); }
+  catch { return; }
+
+  dot($('#d-cam'), h.camera.ok ? 'ok' : 'bad');
+  $('#p-cam').title = h.camera.error || h.camera.name;
+  dot($('#d-pico'), h.pico.ok ? 'ok' : 'warn');
+  $('#p-pico').title = h.pico.error || 'Pico connected';
+  $('#volts').textContent = h.pico.volts != null ? h.pico.volts.toFixed(2)+' V' : 'Pico';
+  dot($('#d-jet'), h.jetson_ok == null ? '' : (h.jetson_ok ? 'ok' : 'bad'));
+  dot($('#d-q'), h.queue_depth ? 'warn' : 'ok');
+  $('#qdepth').textContent = h.queue_depth;
+  $('#shoot').disabled = h.capturing;
+
+  const p = h.progress || {};
+  const on = h.capturing && p.total;
+  $('#progress').classList.toggle('on', !!on);
+  if (on) {
+    $('#ptext').textContent = `${p.n} / ${p.total} · ${p.lighting ?? ''}`;
+    $('#pfill').style.width = (100 * p.n / p.total) + '%';
+  }
+
+  banner(h.camera.ok ? (h.last_error || null)
+                     : ('Camera: ' + (h.camera.error || 'not available')));
 }
 
-/* latest result + history */
-function pct(x){ return (100*x).toFixed(0)+'%'; }
+/* result + history */
+const pct = x => (100*x).toFixed(0) + '%';
+const isReview = c =>
+  c.result && c.result.confidence != null &&
+  c.result.confidence < (cfg?.abstain_below ?? 0);
 
 function showLatest(c){
-  const g = $('#grade'), bars = $('#bars');
+  const card = $('#card'), g = $('#grade'), bars = $('#bars');
+  const review = isReview(c);
+  card.className = 'result' + (review ? ' review' : '')
+                 + (c.status === 'failed' || c.status === 'no-model' ? ' bad' : '');
+  $('#when').textContent = c.captured_at.slice(11,19);
+  $('#board').textContent = c.board_id;
   $('#rerr').textContent = c.error || '';
-  $('#thumbs').innerHTML = c.images.map((_,i) =>
-    `<img src="/api/captures/${c.capture_id}/thumb/${i+1}.jpg" alt="">`).join('');
+  $('#verdict').classList.toggle('on', review);
+  $('#thumbs').innerHTML = c.images.map((im,i) =>
+    `<figure><img src="/api/captures/${c.capture_id}/thumb/${i+1}.jpg" alt="">
+     <figcaption>${im.lighting}</figcaption></figure>`).join('');
 
   if (c.result && c.result.label) {
-    g.className = ''; g.textContent = c.result.label;
+    g.className = '';
+    g.textContent = c.result.label;
     $('#conf').textContent = c.result.confidence != null
-      ? 'confidence ' + c.result.confidence.toFixed(2) : '';
-    const probs = c.result.probs || {};
-    const top = Object.entries(probs).sort((a,b) => b[1]-a[1])[0];
-    bars.innerHTML = Object.entries(probs).sort((a,b) => b[1]-a[1]).map(([k,v]) =>
-      `<div class="bar ${top && k===top[0] ? 'top':''}"><span>${k}</span>
+      ? 'confidence ' + c.result.confidence.toFixed(2)
+        + (review ? ` — under ${cfg.abstain_below}` : '') : '';
+    const probs = Object.entries(c.result.probs || {}).sort((a,b) => b[1]-a[1]);
+    bars.innerHTML = probs.map(([k,v],i) =>
+      `<div class="bar ${i===0 ? 'top':''}"><span>${k}</span>
        <span class="track"><span class="fill" style="width:${100*v}%"></span></span>
        <span class="pct">${pct(v)}</span></div>`).join('');
+    const r = c.result;
+    // No literal "v": the version string comes from the model's own metadata
+    // and often already carries one.
+    $('#foot').textContent = [r.model_id && `${r.model_id} ${r.model_version}`,
+                              r.latency_ms != null && `${r.latency_ms} ms`]
+                             .filter(Boolean).join(' · ');
   } else {
     g.className = 'pending';
-    g.textContent = {queued:'queued…', uploading:'uploading…', waiting:'grading…',
-                     failed:'failed', 'no-model':'no model'}[c.status] || c.status;
-    $('#conf').textContent = ''; bars.innerHTML = '';
+    g.textContent = PENDING[c.status] || c.status;
+    $('#conf').textContent = ''; bars.innerHTML = ''; $('#foot').textContent = '';
   }
 }
 
 async function refresh(){
-  try {
-    const d = await (await fetch('/api/captures')).json();
-    const list = d.captures;
-    if (list.length) showLatest(list[0]);
-    $('#hbody').innerHTML = list.map(c => `<tr>
-      <td>${c.captured_at.slice(11,19)}</td>
-      <td>${c.board_id}</td>
-      <td><span class="row-thumbs">${c.images.map((im,i) =>
-        `<img src="/api/captures/${c.capture_id}/thumb/${i+1}.jpg" title="${im.lighting}">`
-        ).join('')}</span></td>
-      <td class="g">${c.result?.label ?? '—'}</td>
-      <td>${c.result?.confidence != null ? c.result.confidence.toFixed(2) : '—'}</td>
-      <td><span class="tag ${c.status}">${c.status}</span></td>
-    </tr>`).join('');
-  } catch {}
+  let d;
+  try { d = await (await fetch('/api/captures')).json(); }
+  catch { return; }
+  const list = d.captures;
+
+  $('#hempty').style.display = list.length ? 'none' : 'block';
+  if (list.length) showLatest(list[0]);
+
+  const n = s => list.filter(c => c.status === s).length;
+  $('#summary').innerHTML = list.length ? `
+    <span><b>${list.length}</b> captures</span>
+    <span><b>${n('done')}</b> graded</span>
+    <span><b>${list.filter(isReview).length}</b> to review</span>
+    <span><b>${d.queue_depth}</b> pending</span>
+    <span><b>${n('failed') + n('no-model')}</b> failed</span>` : '';
+
+  $('#hbody').innerHTML = list.map(c => `<tr>
+    <td>${c.captured_at.slice(11,19)}</td>
+    <td>${c.board_id}</td>
+    <td><span class="row-thumbs">${c.images.map((im,i) =>
+      `<img src="/api/captures/${c.capture_id}/thumb/${i+1}.jpg" title="${im.lighting}">`
+      ).join('')}</span></td>
+    <td class="g ${isReview(c) ? 'review':''}">${c.result?.label ?? '—'}</td>
+    <td>${c.result?.confidence != null ? c.result.confidence.toFixed(2) : '—'}</td>
+    <td><span class="tag ${c.status}">${c.status}</span></td>
+    <td><button class="mini del" data-id="${c.capture_id}"
+        title="Delete this capture">×</button></td>
+  </tr>`).join('');
 }
+
+/* delete a capture -- delegated on the tbody, which survives the 1s refresh
+   that replaces its innerHTML */
+$('#hbody').onclick = async e => {
+  const btn = e.target.closest('button.del');
+  if (!btn) return;
+  const row = btn.closest('tr');
+  if (!confirm(`Delete capture ${row.children[1].textContent}?\n\n`
+             + `Its images are removed from the Pi. If it has not uploaded `
+             + `yet, it never will.`)) return;
+  btn.disabled = true;
+  const r = await fetch('/api/captures/' + btn.dataset.id, {method:'DELETE'});
+  if (!r.ok) { btn.disabled = false; banner('Could not delete that capture.'); return; }
+  row.remove();
+  refresh();
+};
+
+/* leave the kiosk */
+$('#exit').onclick = async () => {
+  if (!confirm('Close the full-screen browser?\n\n'
+             + 'You will drop to the desktop. The station keeps capturing and '
+             + 'uploading, and the UI is still at localhost:8080.')) return;
+  try {
+    const b = await (await fetch('/api/kiosk/exit', {method:'POST'})).json();
+    // Reached only from a remote browser -- the local one is already gone.
+    $('#exitmsg').textContent = b.closed ? 'Kiosk closed on the Pi.'
+                                         : 'No kiosk browser was running.';
+  } catch {
+    $('#exitmsg').textContent = 'Kiosk closed.';
+  }
+};
 
 /* settings */
 function recipeRow(spec, i){
@@ -391,6 +558,7 @@ function drawSettings(){
   cfg.images.forEach((s,i) => $('#recipe').append(recipeRow(s,i)));
   $('#url').value = cfg.jetson_url; $('#key').value = cfg.api_key;
   $('#task').value = cfg.task; $('#prefix').value = cfg.board_id_prefix;
+  $('#abstain').value = cfg.abstain_below;
 }
 $('#add').onclick = () => {
   $('#recipe').append(recipeRow(
@@ -400,6 +568,7 @@ function collect(){
   return {
     jetson_url: $('#url').value, api_key: $('#key').value,
     task: $('#task').value, board_id_prefix: $('#prefix').value,
+    abstain_below: +$('#abstain').value,
     images: [...$('#recipe').children].map(r => {
       const f = r.querySelectorAll('select,input');
       return {lighting:f[0].value, exposure_us:+f[1].value, settle_ms:+f[2].value};
@@ -436,7 +605,7 @@ $('#check').onclick = async () => {
   drawSettings();
   await refresh(); await health();
   setInterval(refresh, 1000);
-  setInterval(health, 2000);
+  setInterval(health, 600);   // fast enough to track a 1.2s capture recipe
 })();
 </script>
 </body>

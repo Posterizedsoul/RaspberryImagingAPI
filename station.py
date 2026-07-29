@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -41,6 +43,10 @@ DEFAULT_CONFIG = {
     "api_key": "",
     "task": "classification",
     "board_id_prefix": "rig1",
+    # Page 5: a grader that quietly says 4A at 0.41 is worse than one that says
+    # "review this". Below this confidence the UI shows a review state instead
+    # of a grade.
+    "abstain_below": 0.60,
     "images": [
         {"lighting": "warm", "exposure_us": 8000, "settle_ms": 150, "gain_db": 0.0},
         {"lighting": "white", "exposure_us": 8000, "settle_ms": 150, "gain_db": 0.0},
@@ -86,11 +92,15 @@ def validate_config(cfg: dict) -> dict:
             raise ValueError(f"image {i}: gain_db out of range")
         clean.append({"lighting": light, "exposure_us": exposure,
                       "settle_ms": settle, "gain_db": gain})
+    abstain = float(cfg.get("abstain_below", 0.60))
+    if not 0.0 <= abstain <= 1.0:
+        raise ValueError("abstain_below must be between 0 and 1")
     return {
         "jetson_url": str(cfg.get("jetson_url", "")).strip(),
         "api_key": str(cfg.get("api_key", "")).strip(),
         "task": str(cfg.get("task", "classification")).strip() or "classification",
         "board_id_prefix": str(cfg.get("board_id_prefix", "rig1")).strip() or "rig1",
+        "abstain_below": abstain,
         "images": clean,
     }
 
@@ -105,6 +115,9 @@ uplink = Uplink(DATA, lambda: config)
 capture_lock = threading.Lock()
 _counter = {"n": 0}
 last_error: str | None = None
+# Which image of the recipe is being taken, so the UI can say "2 / 3 · white"
+# instead of an opaque spinner.
+progress = {"n": 0, "total": 0, "lighting": None}
 
 
 def _next_id() -> str:
@@ -139,8 +152,10 @@ def run_capture() -> dict:
 
         images = []
         try:
+            progress.update(n=0, total=len(cfg["images"]), lighting=None)
             for i, spec in enumerate(cfg["images"], 1):
                 light = spec["lighting"]
+                progress.update(n=i, lighting=light)
                 # The gate is open for settle + exposure + margin and the
                 # firmware shuts it regardless of what happens up here.
                 hold = spec["settle_ms"] + spec["exposure_us"] // 1000 + 500
@@ -158,6 +173,7 @@ def run_capture() -> dict:
                                "gain_db": spec.get("gain_db", 0.0)})
         finally:
             lights.off()
+            progress.update(n=0, total=0, lighting=None)
 
         meta = {
             "capture_id": capture_id,
@@ -264,6 +280,32 @@ def api_thumb(capture_id: str, n: int) -> FileResponse:
     return FileResponse(path, media_type="image/jpeg")
 
 
+@app.delete("/api/captures/{capture_id}")
+def api_delete_capture(capture_id: str) -> dict:
+    """Drop a capture from the queue and delete its images from the Pi."""
+    if not capture_id.replace("-", "").isalnum():
+        raise HTTPException(400, "bad capture id")
+    if not uplink.delete(capture_id):
+        raise HTTPException(404, "no such capture")
+    return {"deleted": capture_id}
+
+
+@app.post("/api/kiosk/exit")
+def api_kiosk_exit() -> dict:
+    """Close the full-screen browser and drop to the desktop.
+
+    The station itself keeps running -- this only ends the kiosk, so the UI is
+    still there at :8080. Killing the browser is more reliable than
+    window.close(), which Chromium refuses for windows it did not open itself.
+    """
+    if not shutil.which("pkill"):
+        raise HTTPException(501, "pkill is not available on this system")
+    # Matches the autostart entry: chromium ... --kiosk ... (and the sh -c
+    # wrapper if it is still waiting for the station to answer).
+    rc = subprocess.run(["pkill", "-f", "chromium.*--kiosk"]).returncode
+    return {"closed": rc == 0}
+
+
 @app.get("/api/config")
 def api_get_config() -> dict:
     return config
@@ -312,6 +354,7 @@ def api_health() -> dict:
         "queue_depth": uplink.depth,
         "jetson_ok": uplink.jetson_ok,
         "capturing": capture_lock.locked(),
+        "progress": dict(progress),
         "last_error": last_error,
     }
 

@@ -27,7 +27,7 @@ from pathlib import Path
 
 import requests
 
-TERMINAL = {"done", "failed", "no-model"}
+TERMINAL = {"done", "failed", "no-model", "cancelled"}
 MAX_BACKOFF = 30.0
 # How many finished captures to reload into the UI list on startup. The images
 # themselves all stay on disk regardless -- this is only the visible tail.
@@ -46,6 +46,7 @@ class Uplink:
         self._config = config  # callable returning the live config dict
         self._q: queue.Queue[str] = queue.Queue()
         self.captures: dict[str, dict] = {}
+        self._deleted: set[str] = set()
         self._lock = threading.Lock()
         self._run = True
         self.jetson_ok: bool | None = None
@@ -95,6 +96,21 @@ class Uplink:
             if d.is_dir() and meta_path.exists():
                 with self._lock:
                     self.captures[d.name] = json.loads(meta_path.read_text())
+
+    def delete(self, capture_id: str) -> bool:
+        """Drop a capture from the queue and remove its images from the Pi.
+
+        The worker skips anything missing from `captures` when it dequeues, so
+        a queued capture simply never goes up. One already inside `_send` runs
+        to completion -- its file handles stay valid after the unlink -- but
+        the tombstone stops `_save` putting it back in the list afterwards.
+        """
+        with self._lock:
+            existed = self.captures.pop(capture_id, None) is not None
+            self._deleted.add(capture_id)
+        for d in (self.spool / capture_id, self.done / capture_id):
+            shutil.rmtree(d, ignore_errors=True)
+        return existed
 
     def recent(self, limit: int = 30) -> list[dict]:
         with self._lock:
@@ -207,7 +223,8 @@ class Uplink:
         if d.exists():
             (d / "meta.json").write_text(json.dumps(meta, indent=2))
         with self._lock:
-            self.captures[meta["capture_id"]] = meta
+            if meta["capture_id"] not in self._deleted:
+                self.captures[meta["capture_id"]] = meta
 
 
 class _Permanent(Exception):

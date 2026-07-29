@@ -157,6 +157,34 @@ def test_failed_upload_keeps_images_and_restart_requeues(tmp: Path) -> None:
     print("ok  failed upload keeps the images and a restart re-enqueues them")
 
 
+def test_delete_removes_capture_and_survives_a_late_save(tmp: Path) -> None:
+    up = setup(tmp)
+    meta = station.run_capture()
+    d = tmp / "spool" / meta["capture_id"]
+    assert d.exists()
+
+    assert up.delete(meta["capture_id"]) is True
+    assert not d.exists(), "images should be gone from the Pi"
+    assert meta["capture_id"] not in up.captures
+    assert up.delete(meta["capture_id"]) is False, "second delete is a no-op"
+
+    # An upload already inside _send finishes and calls _save afterwards. That
+    # must not put the deleted capture back into the list.
+    meta["status"] = "done"
+    up._save(meta)
+    assert meta["capture_id"] not in up.captures, "deleted capture came back"
+
+    # And the worker must skip it rather than trying to upload missing files.
+    def boom(*a, **kw):
+        raise AssertionError("worker tried to upload a deleted capture")
+
+    uplink_mod.requests.post = boom
+    up.start()
+    up._q.put(meta["capture_id"])
+    time.sleep(0.5)
+    print("ok  delete removes the capture and the worker skips it")
+
+
 def test_config_validation_rejects_bad_input(tmp: Path) -> None:
     for bad, why in [
         ({"images": []}, "empty recipe"),
@@ -188,6 +216,7 @@ if __name__ == "__main__":
              test_multipart_pairs_each_view_with_its_label,
              test_capture_returns_before_upload_finishes,
              test_failed_upload_keeps_images_and_restart_requeues,
+             test_delete_removes_capture_and_survives_a_late_save,
              test_config_validation_rejects_bad_input,
              test_light_masks_match_the_schematic]
     for fn in tests:

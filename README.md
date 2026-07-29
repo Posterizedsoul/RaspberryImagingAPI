@@ -101,9 +101,34 @@ removing rows changes how many images per board; `lighting` is one of `warm`,
 `exposure_us`, `settle_ms` and `gain_db` stay per-image and UI-editable on
 purpose. A real rig needs tuning that a hardcoded constant cannot see.
 
+`abstain_below` is the confidence under which the UI stops showing a grade and
+shows **REVIEW** instead — card and top bar turn amber, and History counts how
+many are waiting. Page 5 of the plan is blunt about why: a grader that quietly
+outputs 4A at 0.41 is worse than one that says "review this", and a rising
+abstain rate is the earliest sign the rig has drifted.
+
 **Watch `max_views`.** The Jetson truncates a board to the active model's
 `max_views`. A recipe longer than that uploads images the model never grades —
 "Check Jetson" in Settings says so explicitly.
+
+## Operating it
+
+The **CAPTURE** button and the Pico's GP15 do the same thing. While a recipe
+runs, the live view shows which image is being taken and under which light
+(`2 / 3 · white`) rather than an opaque spinner.
+
+A camera fault or a failed capture raises a banner across the top; it stays
+until dismissed, because a grading station that fails quietly is the dangerous
+kind (page 8).
+
+**History** lists recent captures with their thumbnails, grade and status, and
+a `×` per row that removes a capture from the queue and deletes its images from
+the Pi. A capture already mid-upload finishes, but it will not reappear in the
+list.
+
+**Settings → Exit full screen** closes the kiosk browser and returns to the
+desktop. The station keeps capturing and uploading; the UI is still at
+`localhost:8080`.
 
 ## Endpoints
 
@@ -115,8 +140,10 @@ purpose. A real rig needs tuning that a hardcoded constant cannot see.
 | `GET /api/captures` | recent captures with status and grade |
 | `GET /api/captures/{id}/thumb/{n}.jpg` | thumbnails |
 | `GET`/`PUT /api/config` | the recipe and connection settings |
+| `DELETE /api/captures/{id}` | drop from the queue, remove its images |
 | `GET /api/jetson` | active model, for the Settings tab |
-| `GET /api/health` | camera, Pico, rail volts, queue depth |
+| `GET /api/health` | camera, Pico, rail volts, queue depth, capture progress |
+| `POST /api/kiosk/exit` | close the kiosk browser, leave the station running |
 
 ## Hardware
 
