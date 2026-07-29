@@ -69,6 +69,17 @@ install_spinnaker() {
   py="$(ls "$DIR"/vendor/spinnaker_python-*aarch64*.tar.gz 2>/dev/null | head -1 || true)"
   [ -n "$pkg" ] || return 1
 
+  # An arm64 package cannot install on a 32-bit image, and the dpkg error for
+  # it is unhelpfully generic. Check before spending five minutes on it.
+  local host_arch
+  host_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
+  if [ "$host_arch" != "arm64" ]; then
+    warn "This is $host_arch ($(uname -m)) but the SDK in vendor/ is arm64."
+    warn "Either flash the 64-bit Raspberry Pi OS, or download the armhf"
+    warn "Spinnaker build instead. Skipping the SDK install."
+    return 1
+  fi
+
   say "Installing the Spinnaker SDK from vendor/"
   tmp="$(mktemp -d)"
   tar -xzf "$pkg" -C "$tmp"
@@ -77,10 +88,25 @@ install_spinnaker() {
     libusb-1.0-0 libgomp1 libavcodec-dev libavformat-dev libswscale-dev \
     libswresample-dev libavutil-dev 2>/dev/null || true
 
-  # Their .debs prompt about udev rules and the usbfs limit. Noninteractive
-  # takes the defaults; the group and buffer are set explicitly below anyway.
-  ( cd "$(dirname "$(find "$tmp" -name 'libspinnaker*.deb' | head -1)")" &&
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ./*.deb )
+  # NOT -qq here. These debs fail in ways you have to read: a postinst prompt,
+  # a missing dependency, an arch mismatch. Swallowing the output leaves you
+  # with "sub-process returned an error code (1)" and nothing to act on.
+  local debdir
+  debdir="$(dirname "$(find "$tmp" -name 'libspinnaker*.deb' | head -1)")"
+  if ! ( cd "$debdir" &&
+         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ./*.deb ); then
+    warn "The .deb install failed. Trying to repair dependencies..."
+    sudo apt-get install -f -y || true
+
+    # FLIR ship their own installer, which knows the package order and the
+    # prompts. Slower and chattier, but it succeeds where a bare apt does not.
+    local flir
+    flir="$(find "$tmp" -name 'install_spinnaker*.sh' | head -1 || true)"
+    if [ -n "$flir" ]; then
+      warn "Falling back to FLIR's own installer: $(basename "$flir")"
+      ( cd "$(dirname "$flir")" && sudo chmod +x "$flir" && yes | sudo "$flir" ) || true
+    fi
+  fi
 
   # Camera access without root. Without this PySpin enumerates zero devices
   # when the station runs as a service, which looks exactly like a dead camera.
