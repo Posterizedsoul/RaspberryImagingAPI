@@ -80,6 +80,19 @@ download rather than the wrong package.
 `flirimaging` group not being live in your session yet. Log out and back in,
 or reboot.
 
+**`_ARRAY_API not found`, or "compiled with numpy 1.x cannot be used in numpy
+2.x"** — PySpin's C extension is built against the numpy 1.x ABI. The
+libraries are fine; this is purely the Python side:
+
+```bash
+.venv/bin/pip install "numpy<2"
+```
+
+The script pins this for you and installs the wheel with `--no-deps`, because
+the wheel declares an unpinned `numpy` and `--force-reinstall` applies to
+dependencies too — without `--no-deps` pip pulls numpy 2 straight back over
+the pin.
+
 Everything in this directory is gitignored, deliberately. The SDK is
 proprietary Teledyne FLIR software and its licence forbids redistribution, so
 it cannot live in this repo — that is why it is a download step rather than a
