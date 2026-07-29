@@ -167,9 +167,20 @@ if [ "$want_tag" != "$have_tag" ]; then
   "$VENV/bin/pip" install -q -r "$DIR/requirements.txt"
 fi
 
+# PySpin's C extension is compiled against the numpy 1.x ABI. Under numpy 2 it
+# fails at import with "_ARRAY_API not found" and "compiled with numpy 1.x
+# cannot be used in numpy 2.x", which reads like a broken install rather than a
+# version conflict. Pin it here rather than in requirements.txt: numpy 1.26 has
+# no wheel for Python 3.13, so an unconditional pin would break setup.sh on a
+# system that never wanted PySpin in the first place. By this point the venv is
+# on the wheel's own Python, where 1.26 wheels exist.
+say "Pinning numpy to 1.x for PySpin's ABI"
+"$VENV/bin/pip" install -q "numpy<2"
+
 whl="$(find "$tmp" -name "*${want_tag}*aarch64.whl" | head -1 || true)"
 [ -n "$whl" ] || die "No aarch64 wheel for $want_tag inside $(basename "$py")."
 "$VENV/bin/pip" install --force-reinstall "$whl"
+echo "   numpy $("$VENV/bin/python" -c 'import numpy;print(numpy.__version__)')"
 
 # --------------------------------------------------------------- verify it --
 say "Verifying"

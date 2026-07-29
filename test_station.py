@@ -108,26 +108,37 @@ def test_multipart_pairs_each_view_with_its_label(tmp: Path) -> None:
 
 
 def test_capture_returns_before_upload_finishes(tmp: Path) -> None:
+    """The claim is "capture does not wait for the upload", so assert exactly
+    that: both captures finish while the worker is still inside the POST.
+
+    Deliberately not a wall-clock bound. Encoding six PNGs takes as long as the
+    machine takes, so a time limit measures the CPU rather than the behaviour
+    and fails under load while the code is perfectly correct.
+    """
     up = setup(tmp)
+    entered = threading.Event()
     released = threading.Event()
+    finished = []
 
     def slow_post(*a, **kw):
-        released.wait(10)
+        entered.set()
+        released.wait(30)
+        finished.append(True)
         return Reply({"inference_queued": False})
 
     uplink_mod.requests.post = slow_post
     up.start()
 
-    t0 = time.monotonic()
     first = station.run_capture()
+    assert entered.wait(20), "the worker never started uploading the first capture"
     second = station.run_capture()      # the operator shoots again immediately
-    elapsed = time.monotonic() - t0
 
-    assert elapsed < 2.0, f"capture blocked for {elapsed:.1f}s behind the upload"
+    assert not finished, "capture waited for the upload to finish"
     assert first["capture_id"] != second["capture_id"]
     assert up.depth >= 1, "second capture should be waiting in the queue"
+
     released.set()
-    print(f"ok  two captures returned in {elapsed:.2f}s while the uplink was stuck")
+    print("ok  both captures returned while the uplink was still mid-upload")
 
 
 def test_failed_upload_keeps_images_and_restart_requeues(tmp: Path) -> None:

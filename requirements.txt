@@ -2,6 +2,11 @@ fastapi
 uvicorn[standard]
 requests
 pillow
+# Left unpinned on purpose. PySpin needs numpy 1.x -- its C extension is built
+# against that ABI -- but numpy 1.26 has no wheel for Python 3.13, so pinning
+# it here would break setup on a system running the station without a camera.
+# install-spinnaker.sh applies the "numpy<2" constraint instead, once the venv
+# is on the interpreter the PySpin wheel was built for.
 numpy
 pyserial
 
