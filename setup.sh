@@ -63,78 +63,20 @@ fi
 # and its licence forbids redistribution. Drop the two tarballs you downloaded
 # from FLIR into vendor/ and this installs them unattended. vendor/ is
 # gitignored so the SDK can never be committed by accident.
-install_spinnaker() {
-  local pkg py whl tmp pyver
-  pkg="$(ls "$DIR"/vendor/spinnaker-*-arm64-pkg*.tar.gz 2>/dev/null | head -1 || true)"
-  py="$(ls "$DIR"/vendor/spinnaker_python-*aarch64*.tar.gz 2>/dev/null | head -1 || true)"
-  [ -n "$pkg" ] || return 1
-
-  # An arm64 package cannot install on a 32-bit image, and the dpkg error for
-  # it is unhelpfully generic. Check before spending five minutes on it.
-  local host_arch
-  host_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
-  if [ "$host_arch" != "arm64" ]; then
-    warn "This is $host_arch ($(uname -m)) but the SDK in vendor/ is arm64."
-    warn "Either flash the 64-bit Raspberry Pi OS, or download the armhf"
-    warn "Spinnaker build instead. Skipping the SDK install."
-    return 1
-  fi
-
-  say "Installing the Spinnaker SDK from vendor/"
-  tmp="$(mktemp -d)"
-  tar -xzf "$pkg" -C "$tmp"
-
-  sudo apt-get install -y -qq \
-    libusb-1.0-0 libgomp1 libavcodec-dev libavformat-dev libswscale-dev \
-    libswresample-dev libavutil-dev 2>/dev/null || true
-
-  # NOT -qq here. These debs fail in ways you have to read: a postinst prompt,
-  # a missing dependency, an arch mismatch. Swallowing the output leaves you
-  # with "sub-process returned an error code (1)" and nothing to act on.
-  local debdir
-  debdir="$(dirname "$(find "$tmp" -name 'libspinnaker*.deb' | head -1)")"
-  if ! ( cd "$debdir" &&
-         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ./*.deb ); then
-    warn "The .deb install failed. Trying to repair dependencies..."
-    sudo apt-get install -f -y || true
-
-    # FLIR ship their own installer, which knows the package order and the
-    # prompts. Slower and chattier, but it succeeds where a bare apt does not.
-    local flir
-    flir="$(find "$tmp" -name 'install_spinnaker*.sh' | head -1 || true)"
-    if [ -n "$flir" ]; then
-      warn "Falling back to FLIR's own installer: $(basename "$flir")"
-      ( cd "$(dirname "$flir")" && sudo chmod +x "$flir" && yes | sudo "$flir" ) || true
-    fi
-  fi
-
-  # Camera access without root. Without this PySpin enumerates zero devices
-  # when the station runs as a service, which looks exactly like a dead camera.
-  sudo groupadd -f flirimaging
-  sudo usermod -aG flirimaging "$USER_NAME"
-  NEED_REBOOT=1
-
-  if [ -n "$py" ]; then
-    tar -xzf "$py" -C "$tmp"
-    pyver="$("$DIR/.venv/bin/python" -c 'import sys;print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
-    whl="$(find "$tmp" -name "*$pyver*aarch64.whl" | head -1 || true)"
-    if [ -n "$whl" ]; then
-      "$DIR/.venv/bin/pip" install -q "$whl"
-    else
-      warn "No PySpin wheel for $pyver in $(basename "$py")."
-      warn "Available: $(find "$tmp" -name '*.whl' -printf '%f ' 2>/dev/null)"
-      warn "Download the spinnaker_python build matching $pyver."
-    fi
-  else
-    warn "Found the SDK but no spinnaker_python-*aarch64.tar.gz in vendor/."
-  fi
-  rm -rf "$tmp"
-}
-
 if "$DIR/.venv/bin/python" -c "import PySpin" 2>/dev/null; then
   echo "   PySpin found -- the Blackfly will be used."
-elif install_spinnaker && "$DIR/.venv/bin/python" -c "import PySpin" 2>/dev/null; then
-  echo "   Spinnaker installed; PySpin imports."
+elif ls "$DIR"/vendor/spinnaker-*arm64*.tar.gz >/dev/null 2>&1; then
+  # Delegated to install-spinnaker.sh, which unpacks the debs with dpkg -x
+  # instead of installing them. FLIR build against Ubuntu 20.04/22.04 and this
+  # is Debian, so apt hits dependencies it can never satisfy -- and leaves
+  # half-configured packages behind when it gives up.
+  say "Installing the Spinnaker SDK from vendor/"
+  if bash "$DIR/install-spinnaker.sh"; then
+    NEED_REBOOT=1
+  else
+    warn "Spinnaker install did not complete; see the messages above."
+    warn "The station still runs, on synthetic frames."
+  fi
 else
   warn "PySpin not installed -- the station will run on synthetic frames."
   warn "The SDK is not on PyPI and cannot be redistributed here. Download the"
