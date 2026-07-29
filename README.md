@@ -131,13 +131,20 @@ desktop. The station keeps capturing and uploading; the UI is still at
 `localhost:8080`.
 
 To get back in — after that, or after Alt+F4 — double-click **Imaging Station**
-on the desktop, or find it in the applications menu. The autostart entry only
-fires at login, so without that launcher the only way back would be a terminal.
-By hand it is:
+on the desktop, or find it in the applications menu. From a terminal:
 
 ```bash
-chromium --kiosk --app=http://localhost:8080
+./open-ui.sh
 ```
+
+`--window` opens a normal window instead of kiosk, which is easier when you are
+debugging. The login autostart entry and both desktop launchers all run this
+same script, so the browser invocation lives in exactly one place.
+
+It waits for the station to answer before opening, so a double-click during
+boot cannot land on an error page; it refuses to stack a second browser on a
+UI that is already open; and over SSH, where there is no display to open
+anything on, it prints the URLs instead of failing with a Chromium error.
 
 ## Endpoints
 

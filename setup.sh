@@ -179,41 +179,41 @@ sudo systemctl restart "$SERVICE"
 # at DISPLAY or WAYLAND_DISPLAY.
 if [ -n "$CHROMIUM" ]; then
   say "Setting up the kiosk browser ($CHROMIUM)"
-  mkdir -p "$USER_HOME/.config/autostart"
-  cat > "$USER_HOME/.config/autostart/imaging-kiosk.desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=Imaging station kiosk
-# Wait for the station to answer, otherwise the operator's first paint is an
-# error page and someone has to know to reload it.
-Exec=sh -c 'until curl -sf http://localhost:$PORT/api/health >/dev/null; do sleep 1; done; exec $CHROMIUM --kiosk --app=http://localhost:$PORT --window-size=800,480 --window-position=0,0 --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-pinch --overscroll-history-navigation=0 --check-for-update-interval=31536000'
-X-GNOME-Autostart-enabled=true
-DESKTOP
+  chmod +x "$DIR/open-ui.sh"
 
-  # A way back in. Closing the kiosk -- Alt+F4, or Settings -> Exit full screen
-  # -- otherwise leaves no route to the UI without a terminal, because the
-  # autostart entry above only fires at login.
-  LAUNCH="sh -c 'until curl -sf http://localhost:$PORT/api/health >/dev/null; do sleep 1; done; exec $CHROMIUM --kiosk --app=http://localhost:$PORT --window-size=800,480 --noerrdialogs --disable-infobars --disable-session-crashed-bubble'"
-  write_launcher() {
+  # Everything below launches open-ui.sh rather than repeating the browser
+  # invocation: one copy to change, and the wait-for-the-station guard and the
+  # already-open check come along for free.
+  write_launcher() {   # $1 = path, $2 = Name, $3 = extra lines
     cat > "$1" <<LAUNCHER
 [Desktop Entry]
 Type=Application
-Name=Imaging Station
+Name=$2
 Comment=Open the wood grading station UI full screen
 Icon=camera-photo
 Terminal=false
 Categories=Utility;
-Exec=$LAUNCH
+Exec=$DIR/open-ui.sh
+$3
 LAUNCHER
     chmod +x "$1"
   }
 
+  mkdir -p "$USER_HOME/.config/autostart"
+  write_launcher "$USER_HOME/.config/autostart/imaging-kiosk.desktop" \
+                 "Imaging station kiosk" "X-GNOME-Autostart-enabled=true"
+
+  # A way back in. Closing the kiosk -- Alt+F4, or Settings -> Exit full screen
+  # -- otherwise leaves no route to the UI without a terminal, because the
+  # autostart entry only fires at login.
   mkdir -p "$USER_HOME/.local/share/applications"
-  write_launcher "$USER_HOME/.local/share/applications/imaging-station.desktop"
+  write_launcher "$USER_HOME/.local/share/applications/imaging-station.desktop" \
+                 "Imaging Station" ""
 
   # And on the desktop itself, so getting back is a double-click.
   DESKTOP_DIR="$USER_HOME/Desktop"
-  [ -d "$DESKTOP_DIR" ] && write_launcher "$DESKTOP_DIR/imaging-station.desktop"
+  [ -d "$DESKTOP_DIR" ] &&
+    write_launcher "$DESKTOP_DIR/imaging-station.desktop" "Imaging Station" ""
 
   # Only needed if someone ran the whole script under sudo.
   [ "$(id -u)" -eq 0 ] &&
