@@ -130,6 +130,15 @@ list.
 desktop. The station keeps capturing and uploading; the UI is still at
 `localhost:8080`.
 
+To get back in — after that, or after Alt+F4 — double-click **Imaging Station**
+on the desktop, or find it in the applications menu. The autostart entry only
+fires at login, so without that launcher the only way back would be a terminal.
+By hand it is:
+
+```bash
+chromium --kiosk --app=http://localhost:8080
+```
+
 ## Endpoints
 
 | Route | Purpose |

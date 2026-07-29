@@ -189,8 +189,36 @@ Name=Imaging station kiosk
 Exec=sh -c 'until curl -sf http://localhost:$PORT/api/health >/dev/null; do sleep 1; done; exec $CHROMIUM --kiosk --app=http://localhost:$PORT --window-size=800,480 --window-position=0,0 --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-pinch --overscroll-history-navigation=0 --check-for-update-interval=31536000'
 X-GNOME-Autostart-enabled=true
 DESKTOP
+
+  # A way back in. Closing the kiosk -- Alt+F4, or Settings -> Exit full screen
+  # -- otherwise leaves no route to the UI without a terminal, because the
+  # autostart entry above only fires at login.
+  LAUNCH="sh -c 'until curl -sf http://localhost:$PORT/api/health >/dev/null; do sleep 1; done; exec $CHROMIUM --kiosk --app=http://localhost:$PORT --window-size=800,480 --noerrdialogs --disable-infobars --disable-session-crashed-bubble'"
+  write_launcher() {
+    cat > "$1" <<LAUNCHER
+[Desktop Entry]
+Type=Application
+Name=Imaging Station
+Comment=Open the wood grading station UI full screen
+Icon=camera-photo
+Terminal=false
+Categories=Utility;
+Exec=$LAUNCH
+LAUNCHER
+    chmod +x "$1"
+  }
+
+  mkdir -p "$USER_HOME/.local/share/applications"
+  write_launcher "$USER_HOME/.local/share/applications/imaging-station.desktop"
+
+  # And on the desktop itself, so getting back is a double-click.
+  DESKTOP_DIR="$USER_HOME/Desktop"
+  [ -d "$DESKTOP_DIR" ] && write_launcher "$DESKTOP_DIR/imaging-station.desktop"
+
   # Only needed if someone ran the whole script under sudo.
-  [ "$(id -u)" -eq 0 ] && chown -R "$USER_NAME:$USER_NAME" "$USER_HOME/.config/autostart"
+  [ "$(id -u)" -eq 0 ] &&
+    chown -R "$USER_NAME:$USER_NAME" "$USER_HOME/.config/autostart" \
+      "$USER_HOME/.local/share/applications" "$DESKTOP_DIR" 2>/dev/null
   # A grading station that blanks mid-shift looks broken to the operator.
   command -v raspi-config >/dev/null 2>&1 && sudo raspi-config nonint do_blanking 1 || true
 else
