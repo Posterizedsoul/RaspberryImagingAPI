@@ -68,14 +68,33 @@ echo "   unpacked $count packages, no apt involved"
 
 say "Installing libraries to $PREFIX"
 sudo mkdir -p "$PREFIX/lib"
-while IFS= read -r -d '' so; do
-  sudo cp -a "$so" "$PREFIX/lib/"
-done < <(find "$stage" -name '*.so*' -print0)
+# Copy the whole tree, not just *.so. The GenTL producer is Spinnaker_GenTL.cti
+# -- a shared library with a different extension -- and cherry-picking .so
+# files silently left it behind, which surfaces much later as "could not load
+# producer" from System.GetInstance().
+[ -d "$stage/opt" ] && sudo cp -a "$stage/opt/." /opt/
+[ -d "$stage/usr/lib" ] && sudo cp -a "$stage/usr/lib/." "$PREFIX/lib/"
 
 # ldconfig, not LD_LIBRARY_PATH: the station runs as a systemd service and
-# would not inherit a shell variable.
-echo "$PREFIX/lib" | sudo tee /etc/ld.so.conf.d/spinnaker.conf >/dev/null
+# would not inherit a shell variable. Register every directory that actually
+# holds a library rather than assuming the layout.
+find "$PREFIX" -name '*.so*' -printf '%h\n' 2>/dev/null | sort -u |
+  sudo tee /etc/ld.so.conf.d/spinnaker.conf >/dev/null
 sudo ldconfig
+
+# The GenTL producer path is normally exported by the .deb postinst, which
+# dpkg -x deliberately does not run. Without it PySpin imports fine and then
+# System.GetInstance() throws "could not load producer".
+CTI="$(find "$PREFIX" -name '*.cti' 2>/dev/null | sort | head -1 || true)"
+if [ -n "$CTI" ]; then
+  echo "   GenTL producer: $CTI"
+  printf 'export SPINNAKER_GENTL64_CTI=%s\n' "$CTI" |
+    sudo tee /etc/profile.d/spinnaker.sh >/dev/null
+  export SPINNAKER_GENTL64_CTI="$CTI"
+else
+  warn "No .cti found under $PREFIX -- System.GetInstance() will fail."
+  warn "The tarball may not include the GenTL package."
+fi
 
 # ------------------------------------------------------- udev + permissions --
 say "Camera permissions"

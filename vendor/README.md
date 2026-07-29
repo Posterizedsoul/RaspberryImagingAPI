@@ -80,6 +80,22 @@ download rather than the wrong package.
 `flirimaging` group not being live in your session yet. Log out and back in,
 or reboot.
 
+**"could not load producer … SPINNAKER_GENTL64_CTI"** from
+`System.GetInstance()`, after PySpin imports fine — the GenTL producer
+(`Spinnaker_GenTL.cti`) is normally located by an environment variable the
+`.deb` postinst exports, and `dpkg -x` never runs those. `camera.py` finds it
+under `/opt/spinnaker` by itself, so the station does not care; the installer
+also writes `/etc/profile.d/spinnaker.sh` for interactive use. If it is
+genuinely missing:
+
+```bash
+find /opt/spinnaker -name '*.cti'
+```
+
+Nothing found means the GenTL package was not among the debs, or an older
+version of this installer copied only `*.so` files and left it behind — re-run
+`./install-spinnaker.sh`.
+
 **`_ARRAY_API not found`, or "compiled with numpy 1.x cannot be used in numpy
 2.x"** — PySpin's C extension is built against the numpy 1.x ABI. The
 libraries are fine; this is purely the Python side:

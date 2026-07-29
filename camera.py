@@ -11,12 +11,24 @@ FakeCamera takes over and the rest of the station runs unchanged.
 """
 from __future__ import annotations
 
+import glob
 import io
+import os
 import threading
 import time
 
 import numpy as np
 from PIL import Image
+
+# The GenTL producer path is normally exported by Spinnaker's .deb postinst.
+# install-spinnaker.sh unpacks the debs with dpkg -x and never runs those, and
+# a systemd service would not inherit a shell export anyway. Point at the
+# producer ourselves before importing, or PySpin imports cleanly and then
+# System.GetInstance() throws "could not load producer".
+if "SPINNAKER_GENTL64_CTI" not in os.environ:
+    for _cti in sorted(glob.glob("/opt/spinnaker/**/*.cti", recursive=True)):
+        os.environ["SPINNAKER_GENTL64_CTI"] = _cti
+        break
 
 try:
     import PySpin
