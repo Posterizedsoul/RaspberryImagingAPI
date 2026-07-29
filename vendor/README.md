@@ -39,6 +39,31 @@ the `flirimaging` group, reports any shared library that still does not
 resolve, installs the matching wheel, and finishes by importing PySpin and
 listing the cameras it can see.
 
+## The Python version
+
+FLIR ship one `spinnaker_python` tarball **per interpreter version**, and they
+lag well behind the distro — on a current Raspberry Pi OS there is often no
+wheel for the system Python at all. A 3.13 system and a `cp310` wheel is the
+normal situation, not a mistake on your part.
+
+So the wheel decides which Python the project runs on, not the other way
+round. `install-spinnaker.sh` reads the version out of the wheel and, if it
+does not match, obtains that interpreter and rebuilds `.venv` on it:
+
+1. an existing `python3.10` on `PATH`, if there is one;
+2. otherwise a pyenv build — **compiles CPython from source, 20–30 minutes on
+   a Pi 4**, once. Re-runs reuse it.
+
+Then it reinstalls `requirements.txt` and the wheel. Nothing else needs
+touching: the systemd unit, `open-ui.sh` and the tests all reference
+`.venv` by path, so they pick up the new interpreter automatically. The
+rebuilt venv keeps `--system-site-packages`, so a later `setup.sh` run
+recognises it and leaves it alone.
+
+Before waiting on a source build, it is worth a look at FLIR's download page
+for a `spinnaker_python` matching a Python you already have — that skips the
+whole step.
+
 ## If it still fails
 
 Architecture first — it must say `arm64`:

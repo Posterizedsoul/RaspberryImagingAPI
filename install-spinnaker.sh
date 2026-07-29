@@ -120,13 +120,55 @@ fi
 
 say "Installing PySpin"
 tar -xzf "$py" -C "$tmp"
-pyver="$("$VENV/bin/python" -c 'import sys;print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
-whl="$(find "$tmp" -name "*${pyver}*aarch64.whl" | head -1 || true)"
-if [ -z "$whl" ]; then
-  warn "No wheel for $pyver in $(basename "$py"). It contains:"
-  find "$tmp" -name '*.whl' -printf '     %f\n'
-  die "Download the spinnaker_python build matching $pyver."
+
+# The wheel decides which Python this project runs on, not the other way
+# round. FLIR ship one tarball per interpreter version and lag well behind
+# the distro, so on a current Raspberry Pi OS there is simply no wheel for
+# the system Python. Read the version out of the wheel and build the venv to
+# match; every other script points at $DIR/.venv, so nothing else changes.
+want_tag="$(find "$tmp" -name '*.whl' -printf '%f\n' | grep -o 'cp3[0-9]\+' | sort -u | head -1 || true)"
+[ -n "$want_tag" ] || die "No .whl inside $(basename "$py")."
+want_ver="3.${want_tag#cp3}"
+have_tag="$("$VENV/bin/python" -c 'import sys;print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
+
+if [ "$want_tag" != "$have_tag" ]; then
+  warn "The wheel needs Python $want_ver ($want_tag); the venv is $have_tag."
+  interp="$(command -v "python$want_ver" 2>/dev/null || true)"
+
+  if [ -z "$interp" ]; then
+    export PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
+    interp="$(ls -d "$PYENV_ROOT"/versions/"$want_ver".*/bin/python 2>/dev/null | sort -V | tail -1 || true)"
+  fi
+
+  if [ -z "$interp" ]; then
+    say "Building Python $want_ver with pyenv"
+    warn "This compiles CPython from source and takes 20-30 minutes on a Pi 4."
+    warn "It is a one-off; re-runs reuse it."
+    sudo apt-get install -y -qq build-essential libssl-dev zlib1g-dev \
+      libbz2-dev libreadline-dev libsqlite3-dev libncursesw5-dev xz-utils \
+      tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev uuid-dev git
+    [ -d "$PYENV_ROOT" ] ||
+      git clone --depth 1 https://github.com/pyenv/pyenv.git "$PYENV_ROOT"
+    full="$("$PYENV_ROOT/bin/pyenv" install --list | tr -d ' ' |
+            grep -E "^${want_ver}\.[0-9]+$" | tail -1)"
+    [ -n "$full" ] || die "pyenv does not know a $want_ver release."
+    echo "   building $full"
+    "$PYENV_ROOT/bin/pyenv" install -s "$full"
+    interp="$PYENV_ROOT/versions/$full/bin/python"
+  fi
+
+  [ -x "$interp" ] || die "Could not obtain a Python $want_ver interpreter."
+  say "Rebuilding the venv on $("$interp" -V 2>&1)"
+  rm -rf "$VENV"
+  # --system-site-packages to stay consistent with setup.sh, which rebuilds
+  # any venv lacking it.
+  "$interp" -m venv --system-site-packages "$VENV"
+  "$VENV/bin/pip" install -q --upgrade pip
+  "$VENV/bin/pip" install -q -r "$DIR/requirements.txt"
 fi
+
+whl="$(find "$tmp" -name "*${want_tag}*aarch64.whl" | head -1 || true)"
+[ -n "$whl" ] || die "No aarch64 wheel for $want_tag inside $(basename "$py")."
 "$VENV/bin/pip" install --force-reinstall "$whl"
 
 # --------------------------------------------------------------- verify it --
