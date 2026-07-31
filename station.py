@@ -251,9 +251,22 @@ app = FastAPI(title="Imaging station", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
+def ui_version() -> str:
+    """Changes whenever the served page changes. Cheap enough to stat per poll."""
+    try:
+        st = (ROOT / "static" / "index.html").stat()
+        return f"{int(st.st_mtime)}-{st.st_size}"
+    except OSError:
+        return "?"
+
+
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(ROOT / "static" / "index.html")
+    # no-store, because the kiosk browser is the last thing anyone thinks to
+    # reload: after a git pull the server is new and the screen still shows
+    # the old page, which reads as "the update did not work".
+    return FileResponse(ROOT / "static" / "index.html",
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/preview.mjpg")
@@ -415,6 +428,7 @@ def api_health() -> dict:
         "capturing": capture_lock.locked(),
         "progress": dict(progress),
         "last_error": last_error,
+        "ui_version": ui_version(),
     }
 
 

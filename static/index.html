@@ -380,7 +380,7 @@ const LIGHTS = ["warm","white","both","off"];
 const PENDING = {queued:'queued…', uploading:'uploading…', waiting:'grading…',
                  failed:'failed', 'no-model':'no model on the Jetson',
                  cancelled:'cancelled'};
-let cfg = null, dismissed = '';
+let cfg = null, dismissed = '', uiVersion = null;
 
 /* theme -- the head script already applied the stored choice */
 function setTheme(t){
@@ -479,6 +479,13 @@ async function health(){
   let h;
   try { h = await (await fetch('/api/health')).json(); }
   catch { return; }
+
+  // The kiosk is the last thing anyone remembers to reload, so after a pull
+  // the server is new and the screen still shows the old page. Reload once
+  // when the served UI changes; uiVersion is then re-read on boot, so this
+  // cannot loop.
+  if (uiVersion === null) uiVersion = h.ui_version;
+  else if (h.ui_version && h.ui_version !== uiVersion) location.reload();
 
   dot($('#d-cam'), h.camera.ok ? 'ok' : 'bad');
   $('#p-cam').title = h.camera.error || h.camera.name;
