@@ -111,6 +111,25 @@ abstain rate is the earliest sign the rig has drifted.
 `max_views`. A recipe longer than that uploads images the model never grades —
 "Check Jetson" in Settings says so explicitly.
 
+## Live view exposure
+
+Sliders under the live view set the **preview's** exposure and gain, and
+**Auto** lets the sensor converge once and keeps the number it lands on.
+
+This is separate from the recipe on purpose. Auto-exposure must never be on
+during a capture — page 3 requires a locked exposure identical to training, and
+a rig that quietly re-exposes per board destroys the thing the model was taught.
+So captures always use the recipe's own `exposure_us`, and these sliders only
+affect what you see while framing.
+
+If the preview is near-black while SpinView looks fine, this is why: SpinView
+runs auto-exposure continuously, the station does not. Press **Auto** to get a
+sensible starting number, then set the recipe's per-image exposure near it.
+
+The exposure slider is logarithmic — the useful range spans tens of
+microseconds to a tenth of a second, and a linear slider spends most of its
+travel where you never want to be. Values persist across restarts.
+
 ## Operating it
 
 The **CAPTURE** button and the Pico's GP15 do the same thing. While a recipe
@@ -157,6 +176,8 @@ anything on, it prints the URLs instead of failing with a Chromium error.
 | `GET /api/captures/{id}/thumb/{n}.jpg` | thumbnails |
 | `GET`/`PUT /api/config` | the recipe and connection settings |
 | `DELETE /api/captures/{id}` | drop from the queue, remove its images |
+| `GET`/`PUT /api/preview` | live-view exposure and gain, plus sensor limits |
+| `POST /api/preview/auto` | converge auto-exposure once, keep the value |
 | `GET /api/jetson` | active model, for the Settings tab |
 | `GET /api/health` | camera, Pico, rail volts, queue depth, capture progress |
 | `POST /api/kiosk/exit` | close the kiosk browser, leave the station running |

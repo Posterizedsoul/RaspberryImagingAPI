@@ -48,6 +48,16 @@ RECONNECT_SECONDS = 2.0
 # Consecutive failures before we assume the handle is dead rather than unlucky.
 MAX_FAILS = 3
 
+# The live view needs its own exposure. Auto-exposure is off -- page 3 requires
+# a locked exposure and SpinView's auto is exactly what we must not ship -- so
+# without an explicit value the preview runs at whatever the camera powered up
+# with, which is usually near-black.
+DEFAULT_PREVIEW_EXPOSURE_US = 20000
+FRAMES_TO_CONVERGE = 15
+# Only used when the sensor cannot be asked; the real bounds come off the node.
+DEFAULT_LIMITS = {"exposure_min": 20, "exposure_max": 200000,
+                  "gain_min": 0.0, "gain_max": 24.0}
+
 
 def _encode_preview(arr: np.ndarray) -> bytes:
     """Downscale first, then hand to PIL.
@@ -83,6 +93,8 @@ class Camera:
         self._result: tuple[bytes | None, str | None] = (None, None)
         self._run = True
         self._dev = None
+        self._preview = {"exposure_us": DEFAULT_PREVIEW_EXPOSURE_US, "gain_db": 0.0}
+        self._applied: dict | None = None   # what the sensor currently holds
         self.error: str | None = None
         self.name = "no camera"
         self._thread = threading.Thread(target=self._loop, daemon=True,
@@ -105,6 +117,20 @@ class Camera:
     def ok(self) -> bool:
         return self._dev is not None and self.error is None
 
+    @property
+    def preview_settings(self) -> dict:
+        with self._lock:
+            return dict(self._preview)
+
+    def set_preview(self, exposure_us: int, gain_db: float) -> dict:
+        """Live-view exposure. Applied by the acquisition thread on its next
+        pass; capture is unaffected, it sets the recipe's own values."""
+        with self._lock:
+            self._preview = {"exposure_us": int(exposure_us),
+                             "gain_db": float(gain_db)}
+            self._applied = None        # force a re-apply
+            return dict(self._preview)
+
     def grab(self, exposure_us: int, gain_db: float = 0.0,
              timeout: float = 15.0) -> bytes:
         """Ask the acquisition thread for one full-res PNG. Blocks.
@@ -112,20 +138,39 @@ class Camera:
         Callers are serialised by the capture lock in station.py, so at most
         one request is ever in flight.
         """
+        png = self._request({"kind": "grab", "exposure_us": int(exposure_us),
+                             "gain_db": float(gain_db)}, timeout)
+        assert isinstance(png, bytes)
+        return png
+
+    def auto_expose(self, timeout: float = 20.0) -> dict:
+        """Let the sensor find an exposure once, then read it back.
+
+        This is how SpinView makes a scene look right, but leaving auto on
+        would break the page 3 capture contract -- exposure must be fixed and
+        identical to training. So: converge once, read the number, turn auto
+        straight back off, and hand the number to the operator as a starting
+        point they can then lock in.
+        """
+        out = self._request({"kind": "auto"}, timeout)
+        assert isinstance(out, dict)
+        self.set_preview(out["exposure_us"], out["gain_db"])
+        return out
+
+    def _request(self, req: dict, timeout: float):
         with self._lock:
             if self._req is not None:
-                raise RuntimeError("a capture is already in flight")
-            self._req = {"exposure_us": int(exposure_us), "gain_db": float(gain_db)}
+                raise RuntimeError("the camera is already busy")
+            self._req = req
             self._done.clear()
         if not self._done.wait(timeout):
             with self._lock:
                 self._req = None
-            raise TimeoutError("camera did not deliver a frame")
-        png, err = self._result
+            raise TimeoutError("camera did not respond")
+        value, err = self._result
         if err:
             raise RuntimeError(err)
-        assert png is not None
-        return png
+        return value
 
     # -- thread -------------------------------------------------------------
 
@@ -153,18 +198,35 @@ class Camera:
 
             if req is not None:
                 try:
-                    self._result = (self._grab_full(req), None)
+                    if req["kind"] == "auto":
+                        self._result = (self._auto_once(), None)
+                    else:
+                        self._result = (self._grab_full(req), None)
                     self.error = None
                     fails = 0
                 except Exception as exc:
                     self._result = (None, str(exc))
                     fails += 1
+                # Either path left the sensor on the recipe's values, so the
+                # preview settings have to go back on before the next frame.
+                self._applied = None
                 with self._lock:
                     self._req = None
                 self._done.set()
                 if fails >= MAX_FAILS:
                     self._drop("capture kept failing")
                 continue
+
+            # Without this the live view runs at whatever exposure the camera
+            # powered up with -- auto is off by design -- which is what made
+            # the preview near-black while SpinView's auto looked fine.
+            want = self.preview_settings
+            if want != self._applied:
+                try:
+                    self._apply(want["exposure_us"], want["gain_db"])
+                    self._applied = want
+                except Exception as exc:
+                    self.error = f"exposure: {exc}"
 
             now = time.monotonic()
             if now < next_preview:
@@ -258,8 +320,41 @@ class Camera:
         return cam
 
     def _apply(self, exposure_us: int, gain_db: float) -> None:
-        self._dev.ExposureTime.SetValue(float(exposure_us))
-        self._dev.Gain.SetValue(float(gain_db))
+        # Clamp to what this sensor actually accepts; SetValue on an
+        # out-of-range number throws and would look like a dead camera.
+        exp = min(max(float(exposure_us), self._dev.ExposureTime.GetMin()),
+                  self._dev.ExposureTime.GetMax())
+        gain = min(max(float(gain_db), self._dev.Gain.GetMin()),
+                   self._dev.Gain.GetMax())
+        self._dev.ExposureTime.SetValue(exp)
+        self._dev.Gain.SetValue(gain)
+
+    def _auto_once(self) -> dict:
+        self._dev.ExposureAuto.SetValue(PySpin.ExposureAuto_Once)
+        try:
+            self._dev.GainAuto.SetValue(PySpin.GainAuto_Once)
+        except Exception:
+            pass
+        for _ in range(FRAMES_TO_CONVERGE):
+            self._next_array()
+        found = {"exposure_us": int(self._dev.ExposureTime.GetValue()),
+                 "gain_db": round(float(self._dev.Gain.GetValue()), 2)}
+        # Straight back off: a locked exposure is the capture contract.
+        self._dev.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
+        try:
+            self._dev.GainAuto.SetValue(PySpin.GainAuto_Off)
+        except Exception:
+            pass
+        return found
+
+    def limits(self) -> dict:
+        try:
+            return {"exposure_min": int(self._dev.ExposureTime.GetMin()),
+                    "exposure_max": int(self._dev.ExposureTime.GetMax()),
+                    "gain_min": round(float(self._dev.Gain.GetMin()), 2),
+                    "gain_max": round(float(self._dev.Gain.GetMax()), 2)}
+        except Exception:
+            return DEFAULT_LIMITS
 
     def _next_array(self) -> np.ndarray | None:
         """One frame. None means the frame was incomplete, caller decides."""
@@ -306,6 +401,13 @@ class FakeCamera(Camera):
 
     def _apply(self, exposure_us: int, gain_db: float) -> None:
         self._exposure = exposure_us
+        self._gain = gain_db
+
+    def _auto_once(self) -> dict:
+        return {"exposure_us": DEFAULT_PREVIEW_EXPOSURE_US, "gain_db": 0.0}
+
+    def limits(self) -> dict:
+        return DEFAULT_LIMITS
 
     def _next_array(self) -> np.ndarray:
         h, w = 480, 640
@@ -313,7 +415,10 @@ class FakeCamera(Camera):
         t = time.time()
         grain = (np.sin(x / 7.0 + np.sin(y / 40.0) * 3.0) * 40 + 128)
         sweep = np.sin((x / 60.0) - t * 2) * 20
-        level = np.clip(self._exposure / 8000.0, 0.2, 2.0)
+        # Brightness tracks exposure and gain so the sliders visibly do
+        # something without a camera attached.
+        level = np.clip(self._exposure / 20000.0, 0.05, 3.0)
+        level *= 10 ** (getattr(self, "_gain", 0.0) / 20.0)
         return np.clip((grain + sweep) * level, 0, 255).astype(np.uint8)
 
     def _close(self) -> None:

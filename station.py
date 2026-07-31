@@ -96,7 +96,7 @@ def validate_config(cfg: dict) -> dict:
     abstain = float(cfg.get("abstain_below", 0.60))
     if not 0.0 <= abstain <= 1.0:
         raise ValueError("abstain_below must be between 0 and 1")
-    return {
+    out = {
         "jetson_url": str(cfg.get("jetson_url", "")).strip(),
         "api_key": str(cfg.get("api_key", "")).strip(),
         "task": str(cfg.get("task", "classification")).strip() or "classification",
@@ -104,12 +104,24 @@ def validate_config(cfg: dict) -> dict:
         "abstain_below": abstain,
         "images": clean,
     }
+    # Live-view exposure is owned by the Live tab, not this form. Carry it
+    # through, or saving Settings would silently reset the preview to black.
+    preview = cfg.get("preview")
+    if isinstance(preview, dict):
+        out["preview"] = preview
+    return out
 
 
 # ------------------------------------------------------------------ state --
 
 config = load_config()
 cam = camera.open_camera()
+# Restore the operator's live-view exposure. Without an explicit value the
+# preview runs at whatever the sensor powered up with, which reads as black.
+if isinstance(config.get("preview"), dict):
+    cam.set_preview(config["preview"].get("exposure_us",
+                                          camera.DEFAULT_PREVIEW_EXPOSURE_US),
+                    config["preview"].get("gain_db", 0.0))
 lights = lights_mod.open_lights()
 uplink = Uplink(DATA, lambda: config)
 
@@ -310,6 +322,45 @@ def api_kiosk_exit() -> dict:
     return {"closed": 0 in results}
 
 
+@app.get("/api/preview")
+def api_get_preview() -> dict:
+    """Live-view exposure and the range this sensor accepts."""
+    return {**cam.preview_settings, **cam.limits()}
+
+
+@app.put("/api/preview")
+def api_set_preview(body: dict) -> dict:
+    """Change the live view only. Captures keep using the recipe's own
+    exposure, so the page 3 capture contract is untouched by this."""
+    try:
+        exposure = int(body["exposure_us"])
+        gain = float(body.get("gain_db", 0.0))
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(422, "exposure_us and gain_db must be numbers")
+    if not 1 <= exposure <= 10_000_000 or not 0 <= gain <= 48:
+        raise HTTPException(422, "exposure_us or gain_db out of range")
+    out = cam.set_preview(exposure, gain)
+    config["preview"] = out
+    save_config(config)
+    return out
+
+
+@app.post("/api/preview/auto")
+def api_auto_expose() -> dict:
+    """Let the sensor find an exposure once, then keep the number.
+
+    This is what SpinView does continuously. Leaving auto on would break the
+    capture contract, so it converges once and locks the value in.
+    """
+    try:
+        found = cam.auto_expose()
+    except Exception as exc:
+        raise HTTPException(503, f"auto exposure failed: {exc}")
+    config["preview"] = cam.preview_settings
+    save_config(config)
+    return found
+
+
 @app.get("/api/config")
 def api_get_config() -> dict:
     return config
@@ -318,6 +369,10 @@ def api_get_config() -> dict:
 @app.put("/api/config")
 def api_put_config(new: dict) -> dict:
     global config
+    # The Settings form has no preview fields, so carry the current ones over
+    # rather than trusting the client to round-trip them.
+    if "preview" not in new and "preview" in config:
+        new = {**new, "preview": config["preview"]}
     try:
         config = validate_config(new)
     except ValueError as exc:

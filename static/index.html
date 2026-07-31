@@ -118,6 +118,17 @@ body{display:flex;flex-direction:column}
 #progress.on{display:flex}
 #progress .track{flex:1;height:4px;background:rgba(255,255,255,.25);border-radius:2px}
 #progress .fill{display:block;height:100%;background:#fff;border-radius:2px;transition:width .2s}
+.ctrl{
+  display:grid;grid-template-columns:auto 1fr 74px auto 1fr 74px auto;
+  gap:8px;align-items:center;flex:none;font-size:13px;color:var(--dim);
+}
+.ctrl label{white-space:nowrap}
+.ctrl .val{
+  text-align:right;color:var(--ink);font-variant-numeric:tabular-nums;
+  font-weight:600;white-space:nowrap;
+}
+.ctrl input[type=range]{width:100%;accent-color:var(--accent);height:22px;padding:0}
+.ctrl .mini{padding:5px 12px}
 #shoot{
   height:64px;border:0;border-radius:3px;background:var(--accent);color:#fff;
   font-family:var(--serif);font-size:26px;letter-spacing:.14em;flex:none;
@@ -280,6 +291,15 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
           <span class="track"><span class="fill" id="pfill"></span></span>
         </div>
       </div>
+      <div class="ctrl">
+        <label for="exp">Exposure</label>
+        <input type="range" id="exp" min="0" max="1000" value="500">
+        <span class="val" id="expv">—</span>
+        <label for="gain">Gain</label>
+        <input type="range" id="gain" min="0" max="24" step="0.5" value="0">
+        <span class="val" id="gainv">0.0 dB</span>
+        <button class="mini" id="auto" title="Let the sensor pick an exposure once">Auto</button>
+      </div>
       <button id="shoot">CAPTURE</button>
     </div>
 
@@ -399,6 +419,56 @@ $('#shoot').onclick = async () => {
     banner(e.message);
   } finally {
     btn.disabled = false;
+  }
+};
+
+/* live-view exposure. Log scale: the useful range runs from tens of
+   microseconds to a tenth of a second, and a linear slider spends 90% of its
+   travel in the part you never want. */
+let limits = {exposure_min:20, exposure_max:200000, gain_min:0, gain_max:24};
+const lo = () => Math.max(1, limits.exposure_min);
+const span = () => Math.log(limits.exposure_max / lo());
+const toUs = v => Math.round(lo() * Math.exp(span() * v / 1000));
+const toSlider = us => Math.round(1000 * Math.log(Math.max(us, lo()) / lo()) / span());
+const fmtUs = us => us >= 1000 ? (us/1000).toFixed(us >= 10000 ? 0 : 1)+' ms'
+                               : us+' µs';
+
+let sendTimer = null;
+function pushPreview(){
+  clearTimeout(sendTimer);
+  sendTimer = setTimeout(() => {
+    fetch('/api/preview', {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({exposure_us: toUs(+$('#exp').value),
+                            gain_db: +$('#gain').value})}).catch(() => {});
+  }, 150);   // the operator drags; do not post on every pixel
+}
+function drawPreviewControls(p){
+  if (p.exposure_min != null) limits = {...limits, ...p};
+  $('#exp').value = toSlider(p.exposure_us);
+  $('#expv').textContent = fmtUs(p.exposure_us);
+  $('#gain').max = limits.gain_max;
+  $('#gain').value = p.gain_db;
+  $('#gainv').textContent = (+p.gain_db).toFixed(1) + ' dB';
+}
+$('#exp').oninput = () => {
+  $('#expv').textContent = fmtUs(toUs(+$('#exp').value));
+  pushPreview();
+};
+$('#gain').oninput = () => {
+  $('#gainv').textContent = (+$('#gain').value).toFixed(1) + ' dB';
+  pushPreview();
+};
+$('#auto').onclick = async () => {
+  const b = $('#auto');
+  b.disabled = true; b.textContent = '…';
+  try {
+    const r = await fetch('/api/preview/auto', {method:'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    drawPreviewControls({...limits, ...(await r.json())});
+  } catch (e) {
+    banner(e.message);
+  } finally {
+    b.disabled = false; b.textContent = 'Auto';
   }
 };
 
@@ -603,6 +673,7 @@ $('#check').onclick = async () => {
 (async () => {
   cfg = await (await fetch('/api/config')).json();
   drawSettings();
+  drawPreviewControls(await (await fetch('/api/preview')).json());
   await refresh(); await health();
   setInterval(refresh, 1000);
   setInterval(health, 600);   // fast enough to track a 1.2s capture recipe
