@@ -13,7 +13,13 @@ URL="http://localhost:$PORT"
 SERVICE=imaging-station
 
 MODE="--kiosk"
-[ "${1:-}" = "--window" ] && MODE=""
+FORCE=0
+for a in "$@"; do
+  case "$a" in
+    --window) MODE="" ;;
+    --force|--restart) FORCE=1 ;;
+  esac
+done
 
 # The station is a separate service; the browser closing never stops it. If it
 # genuinely is not running, say so rather than spinning for a minute.
@@ -49,10 +55,22 @@ if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
   exit 0
 fi
 
-# Do not stack a second browser on top of one already showing the UI.
+# Do not stack a second browser on top of one already showing the UI. With
+# --force, replace it instead of refusing -- otherwise "kill it and reopen"
+# silently does nothing when the kill missed, and you go on staring at the
+# old page convinced the update failed.
 if pgrep -f "chromium.*--app=$URL" >/dev/null 2>&1; then
-  echo "The UI is already open."
-  exit 0
+  if [ "$FORCE" = "1" ]; then
+    echo "Closing the browser already showing the UI..."
+    pkill -f "chromium.*--app=$URL" || true
+    sleep 2
+    pkill -9 -f "chromium.*--app=$URL" 2>/dev/null || true
+    sleep 1
+  else
+    echo "The UI is already open. Use --force to close and reopen it,"
+    echo "which is what you want after a git pull."
+    exit 0
+  fi
 fi
 
 BROWSER=""

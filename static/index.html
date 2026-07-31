@@ -370,6 +370,9 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
         <span id="exitmsg">Closes the browser on the Pi and returns to the
           desktop. Capturing and uploading keep running.</span>
       </div>
+      <div class="grid" style="margin-top:12px">
+        <label>UI build</label><span id="build">—</span>
+      </div>
     </fieldset>
   </section>
 </main>
@@ -484,8 +487,15 @@ async function health(){
   // the server is new and the screen still shows the old page. Reload once
   // when the served UI changes; uiVersion is then re-read on boot, so this
   // cannot loop.
-  if (uiVersion === null) uiVersion = h.ui_version;
-  else if (h.ui_version && h.ui_version !== uiVersion) location.reload();
+  if (uiVersion === null) {
+    uiVersion = h.ui_version;
+    // Shown in Settings so "am I on the new UI?" is answerable by looking,
+    // rather than by guessing from whether a feature appears.
+    $('#build').textContent = new Date(parseInt(uiVersion) * 1000)
+      .toLocaleString() + `  (${uiVersion})`;
+  } else if (h.ui_version && h.ui_version !== uiVersion) {
+    location.reload();
+  }
 
   dot($('#d-cam'), h.camera.ok ? 'ok' : 'bad');
   $('#p-cam').title = h.camera.error || h.camera.name;
