@@ -198,6 +198,16 @@ else
   warn "No chromium found; skipping the kiosk. The web UI still works."
 fi
 
+# ------------------------------------------------------------- ownership --
+# Run under sudo, everything this script made is root-owned -- but the service
+# runs as $USER_NAME and creates data/spool at import, so it dies immediately
+# with PermissionError. Hand the tree back.
+if [ "$(stat -c %U "$DIR" 2>/dev/null)" != "$USER_NAME" ] ||
+   [ "$(id -u)" -eq 0 ]; then
+  say "Giving $DIR back to $USER_NAME"
+  sudo chown -R "$USER_NAME:$USER_NAME" "$DIR"
+fi
+
 # ------------------------------------------------------------------- report --
 sleep 2
 if systemctl is-active --quiet "$SERVICE"; then
