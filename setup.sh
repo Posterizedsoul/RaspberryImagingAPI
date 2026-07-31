@@ -190,7 +190,7 @@ LAUNCHER
 
   # Only needed if someone ran the whole script under sudo.
   [ "$(id -u)" -eq 0 ] &&
-    chown -R "$USER_NAME:$USER_NAME" "$USER_HOME/.config/autostart" \
+    chown -R "$USER_NAME:$(id -gn "$USER_NAME")" "$USER_HOME/.config/autostart" \
       "$USER_HOME/.local/share/applications" "$DESKTOP_DIR" 2>/dev/null
   # A grading station that blanks mid-shift looks broken to the operator.
   command -v raspi-config >/dev/null 2>&1 && sudo raspi-config nonint do_blanking 1 || true
@@ -205,7 +205,9 @@ fi
 if [ "$(stat -c %U "$DIR" 2>/dev/null)" != "$USER_NAME" ] ||
    [ "$(id -u)" -eq 0 ]; then
   say "Giving $DIR back to $USER_NAME"
-  sudo chown -R "$USER_NAME:$USER_NAME" "$DIR"
+  # user:group, not user:user -- a primary group need not share the username,
+  # and chown then fails with "invalid group".
+  sudo chown -R "$USER_NAME:$(id -gn "$USER_NAME")" "$DIR"
 fi
 
 # ------------------------------------------------------------------- report --
