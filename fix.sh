@@ -77,6 +77,28 @@ if [ ! -f "$KEEP/config.json" ]; then
   done
 fi
 
+# ------------------------------------------------ sync newest code across --
+# The copy the service runs is not necessarily the copy being updated. Ours
+# started life as a tar/scp transfer with no .git, so git pull in the clone
+# updated a directory nothing ran -- forever. Copy the newest code into the
+# keeper, .git included, so the keeper becomes the clone and there is one
+# directory from here on.
+SRC="$KEEP"
+for d in "${DIRS[@]}"; do
+  [ "$(commit_at "$d")" -gt "$(commit_at "$SRC")" ] && SRC="$d"
+done
+if [ "$SRC" != "$KEEP" ]; then
+  say "Copying newer code from $SRC into $KEEP"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --exclude=.venv --exclude=data --exclude=config.json \
+          --exclude=vendor "$SRC"/ "$KEEP"/
+  else
+    ( cd "$SRC" && tar --exclude=.venv --exclude=data --exclude=config.json \
+        --exclude=vendor -cf - . ) | ( cd "$KEEP" && tar -xf - )
+  fi
+  ok "code synced; $KEEP is now the one to update"
+fi
+
 # ------------------------------------------------------------- update --
 if git -C "$KEEP" rev-parse --git-dir >/dev/null 2>&1; then
   say "Updating"
