@@ -240,6 +240,31 @@ def test_camera_recovers_from_an_unplug(tmp: Path) -> None:
     print("ok  camera re-enumerates after an unplug and streams again")
 
 
+def test_camera_auto_exposes_itself_on_open(tmp: Path) -> None:
+    """A fresh rig must show a usable picture with nothing pressed.
+
+    Auto-exposure is off during captures by design (page 3), and nothing set
+    the live view's exposure -- so the preview ran at whatever the sensor
+    powered up with and looked black while SpinView looked fine.
+    """
+    cam = camera.FakeCamera()
+    cam.start()
+    try:
+        time.sleep(0.8)
+        assert cam.auto_on_open is True
+        assert cam.preview_settings["exposure_us"] > 0
+
+        cam.set_preview(45000, 2.0)
+        assert cam.auto_on_open is False, "a manual setting must outrank auto"
+        cam._drop("simulated unplug")
+        time.sleep(3.5)
+        assert cam.preview_settings["exposure_us"] == 45000, \
+            "a replug must not discard the operator's exposure"
+    finally:
+        cam.stop()
+    print("ok  camera auto-exposes on open, and a manual value outranks it")
+
+
 def test_preview_downscales_before_encoding(tmp: Path) -> None:
     # Building a PIL image from a full 5MP frame and resizing it there cost
     # more per frame than a Pi 4 can spare, and looked like a laggy camera.
@@ -284,6 +309,7 @@ if __name__ == "__main__":
              test_failed_upload_keeps_images_and_restart_requeues,
              test_delete_removes_capture_and_survives_a_late_save,
              test_camera_recovers_from_an_unplug,
+             test_camera_auto_exposes_itself_on_open,
              test_preview_downscales_before_encoding,
              test_config_validation_rejects_bad_input,
              test_light_masks_match_the_schematic]

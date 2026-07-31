@@ -95,6 +95,11 @@ class Camera:
         self._dev = None
         self._preview = {"exposure_us": DEFAULT_PREVIEW_EXPOSURE_US, "gain_db": 0.0}
         self._applied: dict | None = None   # what the sensor currently holds
+        # Auto-expose the live view whenever the camera is opened, so a fresh
+        # rig shows a usable picture with nothing to press. Cleared as soon as
+        # the operator sets an exposure themselves -- their number wins after
+        # that, including across a replug.
+        self.auto_on_open = True
         self.error: str | None = None
         self.name = "no camera"
         self._thread = threading.Thread(target=self._loop, daemon=True,
@@ -125,6 +130,7 @@ class Camera:
     def set_preview(self, exposure_us: int, gain_db: float) -> dict:
         """Live-view exposure. Applied by the acquisition thread on its next
         pass; capture is unaffected, it sets the recipe's own values."""
+        self.auto_on_open = False   # an explicit choice outranks auto
         with self._lock:
             self._preview = {"exposure_us": int(exposure_us),
                              "gain_db": float(gain_db)}
@@ -192,6 +198,17 @@ class Camera:
                     self.error = f"no camera: {exc}"
                     time.sleep(RECONNECT_SECONDS)
                     continue
+                if self.auto_on_open:
+                    # Set _preview directly rather than via set_preview, which
+                    # would clear auto_on_open and stop this happening after a
+                    # replug into different lighting.
+                    try:
+                        found = self._auto_once()
+                        with self._lock:
+                            self._preview = found
+                        self._applied = None
+                    except Exception as exc:
+                        self.error = f"auto exposure: {exc}"
 
             with self._lock:
                 req = self._req

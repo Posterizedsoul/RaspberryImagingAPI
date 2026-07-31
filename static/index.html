@@ -507,6 +507,13 @@ async function health(){
   $('#qdepth').textContent = h.queue_depth;
   $('#shoot').disabled = h.capturing;
 
+  // The camera auto-exposes itself on open, so the sliders have to follow a
+  // value nobody typed. Never while a slider has focus -- that would fight
+  // the operator's thumb mid-drag.
+  if (h.preview && !['exp','gain'].includes(document.activeElement?.id)) {
+    drawPreviewControls({...limits, ...h.preview});
+  }
+
   const p = h.progress || {};
   const on = h.capturing && p.total;
   $('#progress').classList.toggle('on', !!on);

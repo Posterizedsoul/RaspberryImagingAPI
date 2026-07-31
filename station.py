@@ -427,6 +427,7 @@ def api_health() -> dict:
         "jetson_ok": uplink.jetson_ok,
         "capturing": capture_lock.locked(),
         "progress": dict(progress),
+        "preview": cam.preview_settings,
         "last_error": last_error,
         "ui_version": ui_version(),
     }
