@@ -152,7 +152,7 @@ if [ -n "$CHROMIUM" ]; then
   # Everything below launches open-ui.sh rather than repeating the browser
   # invocation: one copy to change, and the wait-for-the-station guard and the
   # already-open check come along for free.
-  write_launcher() {   # $1 = path, $2 = Name, $3 = extra lines
+  write_launcher() {   # $1 = path, $2 = Name, $3 = extra lines, $4 = args
     cat > "$1" <<LAUNCHER
 [Desktop Entry]
 Type=Application
@@ -161,27 +161,32 @@ Comment=Open the wood grading station UI full screen
 Icon=camera-photo
 Terminal=false
 Categories=Utility;
-Exec=$DIR/open-ui.sh
+Exec=$DIR/open-ui.sh $4
 $3
 LAUNCHER
     chmod +x "$1"
   }
 
+  # Autostart gets no --force: at login there is nothing to replace.
   mkdir -p "$USER_HOME/.config/autostart"
   write_launcher "$USER_HOME/.config/autostart/imaging-kiosk.desktop" \
-                 "Imaging station kiosk" "X-GNOME-Autostart-enabled=true"
+                 "Imaging station kiosk" "X-GNOME-Autostart-enabled=true" ""
 
   # A way back in. Closing the kiosk -- Alt+F4, or Settings -> Exit full screen
   # -- otherwise leaves no route to the UI without a terminal, because the
   # autostart entry only fires at login.
+  # The icons DO get --force. Double-clicking "Imaging Station" means "show me
+  # the UI", and without it a browser that is already running (minimised, on
+  # another workspace, or just stale) makes the click do nothing at all --
+  # Terminal=false, so even the explanation goes nowhere.
   mkdir -p "$USER_HOME/.local/share/applications"
   write_launcher "$USER_HOME/.local/share/applications/imaging-station.desktop" \
-                 "Imaging Station" ""
+                 "Imaging Station" "" "--force"
 
   # And on the desktop itself, so getting back is a double-click.
   DESKTOP_DIR="$USER_HOME/Desktop"
   [ -d "$DESKTOP_DIR" ] &&
-    write_launcher "$DESKTOP_DIR/imaging-station.desktop" "Imaging Station" ""
+    write_launcher "$DESKTOP_DIR/imaging-station.desktop" "Imaging Station" "" "--force"
 
   # Only needed if someone ran the whole script under sudo.
   [ "$(id -u)" -eq 0 ] &&
