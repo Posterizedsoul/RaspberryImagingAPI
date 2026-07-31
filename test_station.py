@@ -11,12 +11,16 @@ bearing and would fail silently if broken:
 """
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+import numpy as np
+from PIL import Image
 
 import camera
 import lights as lights_mod
@@ -196,6 +200,57 @@ def test_delete_removes_capture_and_survives_a_late_save(tmp: Path) -> None:
     print("ok  delete removes the capture and the worker skips it")
 
 
+def test_camera_recovers_from_an_unplug(tmp: Path) -> None:
+    """Unplugging the USB cable must not end the stream permanently.
+
+    The acquisition thread used to open the camera once before its loop, so a
+    replug left it retrying a dead handle forever -- reported as "stream is
+    not started" and only fixable by restarting the service.
+    """
+    class Flaky(camera.FakeCamera):
+        opens = 0
+        fail_until = 0.0
+
+        def _open(self):
+            Flaky.opens += 1
+            return super()._open()
+
+        def _next_array(self):
+            if time.time() < self.fail_until:
+                raise RuntimeError("Spinnaker: stream is not started")
+            return super()._next_array()
+
+    cam = Flaky()
+    cam.start()
+    try:
+        time.sleep(0.6)
+        assert cam.ok and Flaky.opens == 1, (cam.ok, Flaky.opens)
+
+        # Hold the fault longer than MAX_FAILS retries take, or the camera
+        # recovers on its own before a reconnect is ever needed.
+        cam.fail_until = time.time() + 3.0
+        time.sleep(2.5)
+        assert not cam.ok, "an unplugged camera must report as faulted"
+
+        time.sleep(6.0)
+        assert Flaky.opens > 1, "never re-enumerated the camera after the fault"
+        assert cam.ok and cam.latest_jpeg(), "did not recover after replug"
+    finally:
+        cam.stop()
+    print("ok  camera re-enumerates after an unplug and streams again")
+
+
+def test_preview_downscales_before_encoding(tmp: Path) -> None:
+    # Building a PIL image from a full 5MP frame and resizing it there cost
+    # more per frame than a Pi 4 can spare, and looked like a laggy camera.
+    big = (np.random.rand(1200, 1600) * 255).astype(np.uint8)
+    jpg = camera._encode_preview(big)
+    assert jpg[:2] == b"\xff\xd8", "not a JPEG"
+    w, _ = Image.open(io.BytesIO(jpg)).size
+    assert w <= camera.PREVIEW_WIDTH * 2, f"preview not downscaled: {w}px"
+    print(f"ok  preview downscales a 1600px frame to {w}px before encoding")
+
+
 def test_config_validation_rejects_bad_input(tmp: Path) -> None:
     for bad, why in [
         ({"images": []}, "empty recipe"),
@@ -228,6 +283,8 @@ if __name__ == "__main__":
              test_capture_returns_before_upload_finishes,
              test_failed_upload_keeps_images_and_restart_requeues,
              test_delete_removes_capture_and_survives_a_late_save,
+             test_camera_recovers_from_an_unplug,
+             test_preview_downscales_before_encoding,
              test_config_validation_rejects_bad_input,
              test_light_masks_match_the_schematic]
     for fn in tests:

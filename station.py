@@ -37,6 +37,7 @@ ROOT = Path(__file__).parent
 CONFIG_PATH = ROOT / "config.json"
 DATA = ROOT / "data"
 THUMB_WIDTH = 240
+PORT = 8080
 
 DEFAULT_CONFIG = {
     "jetson_url": "http://jetson.local:8000",
@@ -300,10 +301,13 @@ def api_kiosk_exit() -> dict:
     """
     if not shutil.which("pkill"):
         raise HTTPException(501, "pkill is not available on this system")
-    # Matches the autostart entry: chromium ... --kiosk ... (and the sh -c
-    # wrapper if it is still waiting for the station to answer).
-    rc = subprocess.run(["pkill", "-f", "chromium.*--kiosk"]).returncode
-    return {"closed": rc == 0}
+    # --app=<url> is the distinctive part and it survives flag changes; the
+    # old "chromium.*--kiosk" pattern missed --window mode and any browser
+    # launched with a different flag order, which looked like the button had
+    # merely minimised the window. open-ui.sh is the wrapper that exec'd it.
+    patterns = [f"--app=http://localhost:{PORT}", "chromium.*--kiosk", "open-ui.sh"]
+    results = [subprocess.run(["pkill", "-f", p]).returncode for p in patterns]
+    return {"closed": 0 in results}
 
 
 @app.get("/api/config")
@@ -360,4 +364,4 @@ def api_health() -> dict:
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="warning")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

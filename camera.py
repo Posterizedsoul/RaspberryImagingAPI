@@ -43,15 +43,26 @@ PREVIEW_FPS = 8
 # away or image 2 of a recipe is exposed for image 1.
 SETTLE_FRAMES = 2
 
+# How long to wait before re-enumerating a camera that stopped answering.
+RECONNECT_SECONDS = 2.0
+# Consecutive failures before we assume the handle is dead rather than unlucky.
+MAX_FAILS = 3
+
 
 def _encode_preview(arr: np.ndarray) -> bytes:
-    img = Image.fromarray(arr)
-    w = PREVIEW_WIDTH
-    h = max(1, round(img.height * w / img.width))
-    img = img.resize((w, h), Image.BILINEAR)
+    """Downscale first, then hand to PIL.
+
+    Slicing with a stride is a numpy view -- effectively free -- so PIL only
+    ever sees a small array. Building an Image from a full 5 MP frame and
+    resizing it in PIL was costing more per frame than a Pi 4 can spare, and
+    showed up as a preview that lagged seconds behind reality.
+    """
+    step = max(1, arr.shape[1] // PREVIEW_WIDTH)
+    img = Image.fromarray(arr[::step, ::step])
+    if img.mode not in ("L", "RGB"):
+        img = img.convert("L" if img.mode in ("I;16", "I", "F") else "RGB")
     buf = io.BytesIO()
-    img.convert("L" if img.mode == "I;16" else img.mode).save(
-        buf, "JPEG", quality=PREVIEW_QUALITY)
+    img.save(buf, "JPEG", quality=PREVIEW_QUALITY)
     return buf.getvalue()
 
 
@@ -119,14 +130,24 @@ class Camera:
     # -- thread -------------------------------------------------------------
 
     def _loop(self) -> None:
-        try:
-            self._dev = self._open()
-        except Exception as exc:
-            self.error = f"open failed: {exc}"
-            return
-
         next_preview = 0.0
+        fails = 0
+
         while self._run:
+            # Opening lives inside the loop so an unplugged camera is
+            # re-enumerated when it comes back. Opening once up front meant a
+            # replug left the thread retrying a dead handle forever, which is
+            # what "stream is not started" was.
+            if self._dev is None:
+                try:
+                    self._dev = self._open()
+                    self.error = None
+                    fails = 0
+                except Exception as exc:
+                    self.error = f"no camera: {exc}"
+                    time.sleep(RECONNECT_SECONDS)
+                    continue
+
             with self._lock:
                 req = self._req
 
@@ -134,11 +155,15 @@ class Camera:
                 try:
                     self._result = (self._grab_full(req), None)
                     self.error = None
+                    fails = 0
                 except Exception as exc:
                     self._result = (None, str(exc))
+                    fails += 1
                 with self._lock:
                     self._req = None
                 self._done.set()
+                if fails >= MAX_FAILS:
+                    self._drop("capture kept failing")
                 continue
 
             now = time.monotonic()
@@ -151,15 +176,29 @@ class Camera:
                     with self._lock:
                         self._latest = _encode_preview(arr)
                     self.error = None
+                    fails = 0
                 next_preview = now + 1.0 / PREVIEW_FPS
             except Exception as exc:
+                fails += 1
                 self.error = f"preview: {exc}"
-                time.sleep(0.5)
+                if fails >= MAX_FAILS:
+                    self._drop("stream stopped answering")
+                else:
+                    time.sleep(0.5)
 
+        self._drop(None)
+
+    def _drop(self, why: str | None) -> None:
+        """Let go of a camera that stopped answering so the next pass
+        re-enumerates it. This is what makes unplug/replug recover."""
         try:
             self._close()
         except Exception:
             pass
+        self._dev = None
+        if why:
+            self.error = f"{why}; reconnecting"
+            time.sleep(RECONNECT_SECONDS)
 
     def _grab_full(self, req: dict) -> bytes:
         self._apply(req["exposure_us"], req["gain_db"])
@@ -202,6 +241,18 @@ class Camera:
             wb.SetIntValue(wb.GetEntryByName("Off").GetValue())
         except Exception:
             pass
+
+        # Serve the newest frame and bin the backlog. The default queues every
+        # frame the sensor produces, so a preview slower than the frame rate
+        # falls further behind every second and you end up watching the past.
+        # This is the single biggest cause of "the camera feels slow".
+        try:
+            s = cam.GetTLStreamNodeMap()
+            mode = PySpin.CEnumerationPtr(s.GetNode("StreamBufferHandlingMode"))
+            mode.SetIntValue(mode.GetEntryByName("NewestOnly").GetValue())
+        except Exception:
+            pass
+
         cam.BeginAcquisition()
         self._system, self._cams = system, cams
         return cam
@@ -221,11 +272,24 @@ class Camera:
             img.Release()
 
     def _close(self) -> None:
-        self._dev.EndAcquisition()
-        self._dev.DeInit()
+        # Each step is separately guarded: after an unplug most of these throw,
+        # and one failure must not stop the rest from releasing. A System
+        # instance left behind means the next enumeration finds nothing.
+        for step in (lambda: self._dev.EndAcquisition(),
+                     lambda: self._dev.DeInit()):
+            try:
+                step()
+            except Exception:
+                pass
         self._dev = None
-        self._cams.Clear()
-        self._system.ReleaseInstance()
+        for obj, call in ((getattr(self, "_cams", None), "Clear"),
+                          (getattr(self, "_system", None), "ReleaseInstance")):
+            try:
+                if obj is not None:
+                    getattr(obj, call)()
+            except Exception:
+                pass
+        self._cams = self._system = None
 
 
 class FakeCamera(Camera):
